@@ -1,0 +1,33 @@
+name: SEU教务处监控自动化
+
+on:
+  schedule:
+    # 每小时运行一次 (UTC时间，0分准时运行)
+    - cron: '0 * * * *'
+  workflow_dispatch: # 允许你手动点击按钮运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+
+      - name: 安装 Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 安装依赖
+        run: pip install requests beautifulsoup4
+
+      - name: 运行监控脚本
+        run: python edulog.py
+
+      - name: 自动保存记录 (Git Push)
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add store/
+          git commit -m "更新已发送记录 [skip ci]" || exit 0
+          git push
