@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # === 1. 配置区 ===
 # 从环境变量读取，安全第一
-WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/87a8364e-1db2-4b12-8fbe-309ef88394ce"
+WEBHOOK_URL = os.environ.get("FEISHU_WEBHOOK")
 BASE_URL = "https://jwc.seu.edu.cn/"
 # 这里的路径改为相对路径，GitHub 才能找到
 STORE_ROOT = "store" 
@@ -122,3 +122,4 @@ def run_task():
 if __name__ == "__main__":
 
     run_task()
+
