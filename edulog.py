@@ -4,13 +4,15 @@ import os
 import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from datetime import datetime, timedelta
 
 # === 1. 配置区 ===
-WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/87a8364e-1db2-4b12-8fbe-309ef88394ce"
+# 从环境变量读取，安全第一
+WEBHOOK_URL = os.environ.get("FEISHU_WEBHOOK")
 BASE_URL = "https://jwc.seu.edu.cn/"
-STORE_ROOT = "store"
+# 这里的路径改为相对路径，GitHub 才能找到
+STORE_ROOT = "store" 
 
-# 定义需要监控的栏目映射：{ "文件夹名": "网页路径" }
 COLUMNS = {
     "最新动态": "zxdt/list.htm",
     "教务信息": "jwxx/list.htm",
@@ -23,39 +25,34 @@ COLUMNS = {
 # === 2. 功能函数 ===
 
 def send_feishu_msg(column_name, title, date_text, notice_url):
-    """发送分类富文本消息"""
     payload = {
         "msg_type": "post",
         "content": {
             "post": {
                 "zh_cn": {
-                    # 标题带上所属栏目，方便一眼识别
-                    "title": f"🔔 [{column_name}] 新通知: {title}",
+                    "title": f"🔔 [{column_name}] {title}",
                     "content": [
                         [{"tag": "text", "text": f"发布时间: {date_text}"}],
-                        [{"tag": "a", "text": "🔗 点击查看原文公告", "href": notice_url}]
+                        [{"tag": "a", "text": "🔗 点击查看原文", "href": notice_url}]
                     ]
                 }
             }
         }
     }
     try:
-        requests.post(WEBHOOK_URL, json=payload, timeout=10)
-        return True
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+        return res.json().get("code") == 0
     except:
         return False
 
-def get_column_notices(column_url):
-    """通用抓取函数"""
+def get_column_notices(full_url):
     notices = []
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(column_url, headers=headers, timeout=15)
+        res = requests.get(full_url, headers=headers, timeout=15)
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 定位 ID（SEU 不同栏目的容器 ID 可能递增，如 w8, w9，但通常都在这个区域）
-        # 这里使用更通用的 find 方式
         container = soup.find(id=lambda x: x and x.startswith('wp_news_w'))
         if not container: return notices
 
@@ -69,61 +66,58 @@ def get_column_notices(column_url):
 
             title = link_tag.get('title') or link_tag.get_text().strip()
             relative_link = link_tag.get('href')
-            full_link = urljoin(column_url, relative_link)
+            full_link = urljoin(full_url, relative_link)
             
             date_tds = row.find_all('td')
-            date_text = date_tds[-1].get_text().strip() if len(date_tds) > 1 else "查看详情"
+            date_text = date_tds[-1].get_text().strip() if len(date_tds) > 1 else "未知"
 
-            # 提取唯一 ID
             try:
-                n_id = relative_link.split('/')[-2]
+                parts = relative_link.split('/')
+                n_id = parts[-2] if len(parts) > 2 else relative_link
             except:
                 n_id = relative_link
             
-            if len(n_id) > 5: # 长度防火墙
+            # 这里的 ID 防火墙必须保留！
+            if n_id and len(n_id) > 5:
                 notices.append({"id": n_id, "title": title, "link": full_link, "date": date_text})
     except Exception as e:
-        print(f"抓取失败: {column_url}, 错误: {e}")
+        print(f"抓取失败 {full_url}: {e}")
     return notices
 
-# === 3. 主程序逻辑 ===
+# === 3. 运行逻辑 ===
 
-def run_multi_column():
-    print(f"🚀 开始全栏目扫描任务...")
+def run_task():
+    # 修正时区显示
+    beijing_time = (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
+    print(f"🚀 北京时间 {beijing_time} 开始扫描...")
     
     for col_name, path in COLUMNS.items():
-        print(f"\n--- 正在检查栏目: {col_name} ---")
-        
-        # 1. 动态准备文件夹和日志文件
-        col_dir = os.path.join(STORE_ROOT, col_name)
-        if not os.path.exists(col_dir):
-            os.makedirs(col_dir)
-        log_file = os.path.join(col_dir, "sent_ids.txt")
+        col_path = os.path.join(STORE_ROOT, col_name)
+        if not os.path.exists(col_path):
+            os.makedirs(col_path)
+        log_file = os.path.join(col_path, "sent_ids.txt")
 
-        # 2. 读取该栏目的历史记录
         sent_ids = set()
         if os.path.exists(log_file):
             with open(log_file, "r", encoding="utf-8") as f:
+                # 只读取有效的长 ID
                 sent_ids = {line.strip() for line in f if len(line.strip()) > 5}
 
-        # 3. 抓取并推送
         current_url = urljoin(BASE_URL, path)
-        notices = get_column_notices(current_url)
+        all_notices = get_column_notices(current_url)
         
-        new_count = 0
-        for notice in reversed(notices):
+        count = 0
+        for notice in reversed(all_notices):
             if notice["id"] not in sent_ids:
-                print(f"✨ [{col_name}] 发现新通知: {notice['title']}")
+                print(f"✨ [{col_name}] 新消息: {notice['title']}")
                 if send_feishu_msg(col_name, notice['title'], notice['date'], notice['link']):
                     with open(log_file, "a", encoding="utf-8") as f:
                         f.write(notice["id"] + "\n")
-                    new_count += 1
-                    time.sleep(1) # 栏目内间隔
-            else:
-                pass 
+                    sent_ids.add(notice["id"])
+                    count += 1
+                    time.sleep(2) 
         
-        print(f"✅ {col_name} 检查完毕，推送 {new_count} 条。")
-        time.sleep(2) # 栏目间切换间隔
+        print(f"✅ {col_name} 处理完毕，新增 {count} 条。")
 
 if __name__ == "__main__":
-    run_multi_column()
+    run_task()
