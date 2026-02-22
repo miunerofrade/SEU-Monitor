@@ -115,11 +115,12 @@ def run_task():
                         f.write(notice["id"] + "\n")
                     sent_ids.add(notice["id"])
                     count += 1
-                    time.sleep(2) 
+                    time.sleep(1) 
         
         print(f"✅ {col_name} 处理完毕，新增 {count} 条。")
 
 if __name__ == "__main__":
 
     run_task()
+
 
