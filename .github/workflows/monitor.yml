@@ -3,8 +3,13 @@ name: SEU教务处监控自动化
 on:
   schedule:
     # 每小时运行一次 (UTC时间，0分准时运行)
+    # 注意：GitHub 的定时任务可能会有几分钟到十几分钟的延迟，这是正常的
     - cron: '0 * * * *'
-  workflow_dispatch: # 允许你手动点击按钮运行
+  workflow_dispatch: # 允许你在 GitHub 页面上点击 "Run workflow" 手动触发
+
+# 赋予 GitHub Actions 修改仓库文件的权限
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -19,15 +24,30 @@ jobs:
           python-version: '3.10'
 
       - name: 安装依赖
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4
 
       - name: 运行监控脚本
+        env:
+          # 【关键】将 GitHub Secrets 注入到系统环境变量中供 Python 读取
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          # 告诉 Python 脚本现在处于 GitHub 环境中，切换到相对路径
+          GITHUB_ACTIONS: "true"
         run: python edulog.py
 
       - name: 自动保存记录 (Git Push)
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          
+          # 检查 store 文件夹是否存在，如果不存在则创建（防止脚本报错）
+          mkdir -p store
+          
+          # 将 store 文件夹下的所有 sent_ids.txt 记录添加到暂存区
           git add store/
-          git commit -m "更新已发送记录 [skip ci]" || exit 0
+          
+          # 提交更改。|| exit 0 是为了防止在没有新公告时 commit 失败导致整个任务显示红色报错
+          git commit -m "自动更新推送记录 [skip ci]" || exit 0
+          
+          # 推送回仓库，让 GitHub “记住”已经发送过的 ID
           git push
