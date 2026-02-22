@@ -4,7 +4,7 @@ import os
 import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 # === 1. 配置区 ===
 # 从环境变量读取，安全第一
@@ -88,7 +88,7 @@ def get_column_notices(full_url):
 
 def run_task():
     # 修正时区显示
-    beijing_time = (datetime.utcnow() + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
+    beijing_time = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')
     print(f"🚀 北京时间 {beijing_time} 开始扫描...")
     
     for col_name, path in COLUMNS.items():
@@ -122,5 +122,6 @@ def run_task():
 if __name__ == "__main__":
 
     run_task()
+
 
 
