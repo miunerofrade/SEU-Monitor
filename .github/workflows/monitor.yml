@@ -1,4 +1,4 @@
-name: SEU教务处监控自动化
+name: SEU_Monitor
 
 on:
   schedule:
