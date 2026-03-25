@@ -7,10 +7,10 @@ from urllib.parse import urljoin
 from datetime import datetime, timezone, timedelta
 
 # === 1. 配置区 ===
-# 从环境变量读取，安全第一
+# 从环境变量读取
 WEBHOOK_URL = os.environ.get("FEISHU_WEBHOOK")
 BASE_URL = "https://jwc.seu.edu.cn/"
-# 这里的路径改为相对路径，GitHub 才能找到
+# 这里的路径改为相对路径
 STORE_ROOT = "store" 
 
 COLUMNS = {
