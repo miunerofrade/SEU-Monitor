@@ -1,0 +1,11 @@
+[Unit]
+Description=SEU-Monitor 定时扫描（每小时）
+Requires=seu-monitor.service
+
+[Timer]
+OnCalendar=*:15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

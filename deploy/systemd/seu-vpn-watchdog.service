@@ -1,0 +1,18 @@
+[Unit]
+Description=SEU-Monitor VPN Watchdog — 检查 VPN 状态并在掉线时尝试自动登录
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/SEU-Monitor
+EnvironmentFile=/home/ubuntu/SEU-Monitor/.env
+ExecStart=/home/ubuntu/SEU-Monitor/.venv/bin/python /home/ubuntu/SEU-Monitor/scripts/vpn_watchdog.py
+StandardOutput=append:/home/ubuntu/SEU-Monitor/logs/vpn_watchdog.log
+StandardError=append:/home/ubuntu/SEU-Monitor/logs/vpn_watchdog.log
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=false
+ProtectSystem=full

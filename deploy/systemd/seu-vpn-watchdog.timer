@@ -1,0 +1,12 @@
+[Unit]
+Description=SEU-Monitor VPN Watchdog 定时检查（每 10 分钟）
+Requires=seu-vpn-watchdog.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

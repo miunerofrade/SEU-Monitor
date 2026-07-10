@@ -1,0 +1,17 @@
+# SEU-Monitor crontab 示例
+# 每小时运行一次（第 15 分钟，避免整点高峰）
+# 使用方式：
+#   crontab deploy/crontab.example
+
+# 环境变量（cron 默认不加载 ~/.bashrc，需要显式设置）
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+MONITOR_CONFIG=/home/ubuntu/SEU-Monitor/config/sites.yaml
+STORE_ROOT=/home/ubuntu/SEU-Monitor/store
+SNAPSHOT_ROOT=/home/ubuntu/seu-snapshots
+FEISHU_WEBHOOK=your_webhook_here
+HTTP_PROXY=http://127.0.0.1:8888
+HTTPS_PROXY=http://127.0.0.1:8888
+VPN_CHECK_URL=https://cvs.seu.edu.cn
+
+15 * * * * cd /home/ubuntu/SEU-Monitor && bash deploy/run_monitor.sh

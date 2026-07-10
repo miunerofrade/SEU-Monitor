@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Virtual env
+.venv/
+venv/
+.env/
+
+# Snapshots（不要提交校内资源快照到 public repo）
+snapshots/
+
+# Logs
+*.log
+logs/

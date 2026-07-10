@@ -1,0 +1,19 @@
+[Unit]
+Description=SEU-Monitor — 东南大学公告监控
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/SEU-Monitor
+EnvironmentFile=/home/ubuntu/SEU-Monitor/.env
+ExecStart=/home/ubuntu/SEU-Monitor/.venv/bin/python3 /home/ubuntu/SEU-Monitor/monitor.py
+StandardOutput=append:/home/ubuntu/SEU-Monitor/logs/monitor.log
+StandardError=append:/home/ubuntu/SEU-Monitor/logs/monitor.log
+
+# 安全限制
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=false
+ProtectSystem=full

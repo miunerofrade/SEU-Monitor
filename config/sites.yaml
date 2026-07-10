@@ -1,0 +1,44 @@
+# SEU-Monitor 站点配置
+# 通过添加新站点即可扩展监控范围（需实现对应 adapter）
+snapshot_root: snapshots
+store_root: store
+
+# VPN 全局配置（环境变量可以覆盖，见 .env.example）
+vpn:
+  enabled: true
+  required: true
+  proxy: http://127.0.0.1:8888
+  healthcheck_url: https://cvs.seu.edu.cn
+  fail_fast: true
+
+sites:
+  - id: jwc
+    name: 教务处
+    adapter: wp_news
+    auth: mixed
+    base_url: https://jwc.seu.edu.cn
+    columns:
+      - id: zxdt
+        name: 最新动态
+        auth: public
+        list_url: https://jwc.seu.edu.cn/zxdt/list.htm
+      - id: jwxx
+        name: 教务信息
+        auth: mixed
+        list_url: https://jwc.seu.edu.cn/jwxx/list.htm
+      - id: xjgl
+        name: 学籍管理
+        auth: mixed
+        list_url: https://jwc.seu.edu.cn/xjgl/list.htm
+      - id: sjjx
+        name: 实践教学
+        auth: mixed
+        list_url: https://jwc.seu.edu.cn/sjjx/list.htm
+      - id: gjjl
+        name: 国际交流
+        auth: mixed
+        list_url: https://jwc.seu.edu.cn/gjjl/list.htm
+      - id: cbxx
+        name: 文化素质教育
+        auth: mixed
+        list_url: https://jwc.seu.edu.cn/cbxx/list.htm
