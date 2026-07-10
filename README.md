@@ -181,6 +181,10 @@ systemctl list-timers seu-monitor
 
 `auth: vpn` 和 `auth: mixed` 的站点/栏目在抓取前会进行健康检查。检查通过后才抓取，失败时跳过该站点并发送飞书告警。
 
+> ⚠️ **注意**：当前 JWC 教务处配置为 `auth: mixed`，当 `VPN_REQUIRED=true` 时（默认开启），VPN 掉线会导致 JWC 整体跳过。这是因为 JWC 部分详情页或附件可能依赖校内 VPN，全局检查是为了避免抓取到不完整的页面。
+>
+> 如果你不需要 VPN 检查 JWC，可以在 `.env` 中设置 `VPN_REQUIRED=false`。这样只有显式标注 `auth: vpn` 的站点才会触发健康检查，JWC 不受影响。
+
 ### 判断 VPN 掉线
 
 ```bash
