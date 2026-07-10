@@ -189,15 +189,19 @@ curl -k -I -x http://127.0.0.1:8888 --max-time 20 https://cvs.seu.edu.cn
 
 如果返回 `tinyproxy 500` 或连接超时，说明 aTrust VPN 已掉线。
 
-## aTrust 自动登录
+## aTrust 自动登录（可选 — 需校内 VPS 环境）
 
 SEU-Monitor 提供基于 Playwright 的 aTrust 统一认证自动登录模块。
+
+> ⚠️ **前提条件**：此功能仅适用于部署在校内 VPS 且已配置 aTrust 代理的环境。需要 VPS 上有 `chromium` 浏览器镜像，且能通过 `http://127.0.0.1:8888` 访问校内资源。普通公开网络环境无法使用。
+>
+> 如果你不需要自动登录功能，可以完全忽略此章节。核心监控（公告抓取、快照、飞书推送）不依赖它。
 
 ### 安装依赖
 
 ```bash
 pip install playwright
-playwright install chromium
+playwright install chromium  # VPS 上需确保 chromium 镜像可用
 ```
 
 ### 配置
