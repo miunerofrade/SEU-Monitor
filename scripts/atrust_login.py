@@ -54,6 +54,12 @@ def _load_settings() -> Settings:
         in ("true", "1", "yes")
     )
 
+    # ---- 登录入口（浏览器访问的 URL，如 vpn.seu.edu.cn） ----
+    settings.atrust_login_url = os.environ.get(
+        "ATRUST_LOGIN_URL",
+        "https://vpn.seu.edu.cn",
+    )
+
     # ---- container_cdp 专用配置 ----
     settings.atrust_login_backend = os.environ.get("ATRUST_LOGIN_BACKEND", "local")
     settings.atrust_container_name = os.environ.get("ATRUST_CONTAINER_NAME", "atrust")
@@ -258,8 +264,9 @@ def _login_local(settings: Settings) -> int:
             page = browser.new_page()
 
             try:
-                print(f"正在访问: {settings.vpn_check_url}")
-                page.goto(settings.vpn_check_url, wait_until="domcontentloaded", timeout=20000)
+                print(f"登录入口: {settings.atrust_login_url}")
+                print(f"检查 URL:  {settings.vpn_check_url}")
+                page.goto(settings.atrust_login_url, wait_until="domcontentloaded", timeout=20000)
                 page.wait_for_timeout(3000)
 
                 on_login = any(
@@ -433,9 +440,22 @@ def _connect_cdp_and_login(settings: Settings) -> int:
             pages = browser.contexts[0].pages if browser.contexts else []
             page = pages[0] if pages else browser.new_page()
 
-            print(f"正在访问: {settings.vpn_check_url}")
-            page.goto(settings.vpn_check_url, wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(3000)
+            print(f"登录入口: {settings.atrust_login_url}")
+            print(f"检查 URL:  {settings.vpn_check_url}")
+
+            # 判断当前页面是否已是认证页
+            current_url = page.url.lower()
+            already_on_login = any(
+                kw in current_url
+                for kw in ["auth", "login", "cas", "sso", "oauth"]
+            )
+
+            if already_on_login:
+                print("当前页面已是认证页，直接填表（不跳转）")
+            else:
+                print(f"跳转到登录入口: {settings.atrust_login_url}")
+                page.goto(settings.atrust_login_url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
 
             on_login = any(
                 kw in page.url.lower()
@@ -492,6 +512,8 @@ def do_login() -> int:
     # 选择后端
     backend = settings.atrust_login_backend
     print(f"登录后端: {backend}")
+    print(f"登录入口: {settings.atrust_login_url}")
+    print(f"检查 URL:  {settings.vpn_check_url}")
 
     if backend == "container_cdp":
         return _login_container_cdp(settings)
