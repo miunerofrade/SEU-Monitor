@@ -213,13 +213,67 @@ playwright install chromium  # VPS 上需确保 chromium 镜像可用
 在 `.env` 中设置：
 
 ```bash
+# 必需：统一认证账号
 ATRUST_USERNAME=your_student_id
 ATRUST_PASSWORD=your_password
-ATRUST_USER_DATA_DIR=/home/ubuntu/.cache/seu-monitor/atrust-playwright
 ATRUST_SCREENSHOT_ON_FAIL=true
+
+# ----- 后端选择 -----
+# 可选: local / container_cdp
+# local: 直接在本机使用 Playwright chromium（调试用）
+ATRUST_LOGIN_BACKEND=container_cdp
+
+# ----- container_cdp 模式专用 -----
+# aTrust 容器名（docker container ls 查看）
+ATRUST_CONTAINER_NAME=atrust
+# 容器内 Chromium CDP 端口
+ATRUST_CDP_INTERNAL_PORT=9222
+# socat 映射到 0.0.0.0 的端口（host 用此端口连接）
+ATRUST_CDP_HOST_PORT=9223
+# 容器内 Chromium 用户数据目录
+ATRUST_CONTAINER_CHROME_USER_DATA_DIR=/root/chrome-atrust-cdp
+# 容器内 DISPLAY 环境变量
+ATRUST_CONTAINER_DISPLAY=:1
 ```
 
 **注意：** 账号密码禁止写死到代码、禁止打印到日志、禁止进入飞书消息。
+
+### container_cdp 工作流程
+
+1. healthcheck 失败
+2. `docker exec atrust` 启动 Chromium（`--remote-debugging-port=9222`）
+3. `docker exec atrust` 启动 socat（`0.0.0.0:9223 → 127.0.0.1:9222`）
+4. Playwright 通过 `connect_over_cdp("http://<容器IP>:9223")` 连接
+5. 填写统一认证表单
+6. 再次 healthcheck 验证
+
+### 手动调试命令
+
+```bash
+# 查看容器名
+docker container ls
+
+# 手动启动 Chromium（排查启动问题）
+docker exec atrust chromium --remote-debugging-port=9222 \
+  --user-data-dir=/root/chrome-atrust-cdp --no-sandbox --disable-gpu \
+  --disable-dev-shm-usage --ozone-platform=x11 --display=:1 about:blank
+
+# 手动启动 socat
+docker exec -d atrust socat TCP-LISTEN:9223,bind=0.0.0.0,fork,reuseaddr \
+  TCP:127.0.0.1:9222
+
+# 测试 CDP 端口是否可达
+curl http://<atrust_container_ip>:9223/json/version
+
+# 获取容器 IP
+docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' atrust
+
+# 查看 Chromium 是否在运行
+docker exec atrust pgrep -af chrome
+
+# 查看 socat 是否在运行
+docker exec atrust pgrep -af socat
+```
 
 ### 使用
 
