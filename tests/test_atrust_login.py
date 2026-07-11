@@ -120,20 +120,18 @@ class TestPageClosedHandling:
 
 class TestContainerCdpBridge:
     def test_cdp_url_uses_localhost(self):
-        """CDP endpoint 应使用 127.0.0.1。"""
+        """CDP endpoint 固定 127.0.0.1:9222。"""
         import scripts.atrust_login as al
         s = al._load_settings()
         url = al._cdp_url(s)
-        assert url.startswith("http://127.0.0.1:")
-        assert str(s.atrust_cdp_host_port) in url
+        assert url == "http://127.0.0.1:9222"
 
-    def test_cdp_url_default_port(self, monkeypatch):
-        """默认端口为 9223。"""
-        monkeypatch.delenv("ATRUST_CDP_HOST_PORT", raising=False)
-        from scripts.atrust_login import _load_settings, _cdp_url
-        s = _load_settings()
-        url = _cdp_url(s)
-        assert ":9223" in url
+    def test_cdp_url_default_port(self):
+        """CDP endpoint 固定为 9222。"""
+        import scripts.atrust_login as al
+        s = al._load_settings()
+        url = al._cdp_url(s)
+        assert ":9222" in url
 
     def test_cdp_already_available(self, monkeypatch):
         """CDP 已可用时 _ensure_cdp 应直接返回 True。"""

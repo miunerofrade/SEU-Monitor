@@ -317,8 +317,13 @@ def _login_local(settings: Settings) -> int:
 # ---------------------------------------------------------------------------
 
 def _cdp_url(settings: Settings) -> str:
-    """返回 CDP endpoint（始终使用 host 本地地址）。"""
-    return f"http://127.0.0.1:{settings.atrust_cdp_host_port}"
+    """返回 CDP endpoint（固定 127.0.0.1:9222）。"""
+    return "http://127.0.0.1:9222"
+
+
+def _cdp_log_file() -> str:
+    """返回 CDP bridge 日志路径。"""
+    return "/tmp/host-cdp-bridge-9222.log"
 
 
 def _check_cdp(settings: Settings, timeout: int = 10) -> bool:
@@ -331,16 +336,32 @@ def _check_cdp(settings: Settings, timeout: int = 10) -> bool:
         data = json.loads(resp.read().decode())
         print(f"CDP 已可用: {data.get('Browser', '?')}")
         return True
+    except urllib.request.URLError as e:
+        print(f"CDP 连接失败: {e}")
+        log = _cdp_log_file()
+        try:
+            tail = subprocess.run(
+                ["tail", "-n", "20", log],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+            if tail:
+                print(f"  bridge 日志 ({log}):\n{tail}")
+        except Exception:
+            pass
+        return False
     except Exception as e:
         print(f"CDP 连接失败: {e}")
         return False
 
 
 def _kill_host_cdp_bridge(settings: Settings):
-    """清理 host 上已有的 bridge socat 进程。"""
-    port = settings.atrust_cdp_host_port
+    """清理 host 上 socat bridge 进程。"""
     subprocess.run(
-        ["pkill", "-f", f"TCP-LISTEN:{port}"],
+        ["pkill", "-f", "seu-monitor-cdp-bridge"],
+        capture_output=True, timeout=10,
+    )
+    subprocess.run(
+        ["pkill", "-f", "TCP-LISTEN:9222"],
         capture_output=True, timeout=10,
     )
 
@@ -391,36 +412,48 @@ def _start_chromium_in_container(settings: Settings) -> bool:
 
 
 def _start_host_cdp_bridge(settings: Settings) -> bool:
-    """在 host 上启动 socat 桥接 CDP。
+    """在 host 上创建桥接脚本并通过 socat 启动 CDP bridge。
 
-    等价命令:
-      nohup socat TCP-LISTEN:9223,bind=127.0.0.1,fork,reuseaddr \
-        EXEC:'docker exec -i atrust socat - TCP:127.0.0.1:9222',nofork \
-        >/tmp/host-dockerexec-cdp-9223.log 2>&1 &
+    创建 /tmp/seu-monitor-cdp-bridge.sh:
+      #!/usr/bin/env bash
+      exec docker exec -i atrust socat STDIO TCP:127.0.0.1:9222
+
+    然后 socat:
+      socat TCP-LISTEN:<port>,bind=127.0.0.1,fork,reuseaddr \\
+            EXEC:/tmp/seu-monitor-cdp-bridge.sh
     """
     container = settings.atrust_container_name
     internal = settings.atrust_cdp_internal_port
-    host_port = settings.atrust_cdp_host_port
-    log_file = f"/tmp/host-dockerexec-cdp-{host_port}.log"
+    host_port = 9222  # 桥接端口统一用 9222
+    bridge_script = "/tmp/seu-monitor-cdp-bridge.sh"
+    log_file = f"/tmp/host-cdp-bridge-{host_port}.log"
 
-    # 先清理旧的 bridge
     _kill_host_cdp_bridge(settings)
     time.sleep(0.5)
 
-    exec_expr = f"docker exec -i {container} socat - TCP:127.0.0.1:{internal}"
-    cmd = [
-        "nohup", "socat",
-        f"TCP-LISTEN:{host_port},bind=127.0.0.1,fork,reuseaddr",
-        f"EXEC:'{exec_expr}',nofork",
-        ">", log_file, "2>&1",
-    ]
-    print(f"启动 host CDP bridge (127.0.0.1:{host_port})...")
-    shell_cmd = " ".join(cmd)
+    # 创建桥接脚本
+    script_content = (
+        "#!/usr/bin/env bash\n"
+        f"exec docker exec -i {container} socat STDIO TCP:127.0.0.1:{internal}\n"
+    )
     try:
-        subprocess.run(
-            ["bash", "-c", shell_cmd],
-            capture_output=True, text=True, timeout=15,
-        )
+        with open(bridge_script, "w") as f:
+            f.write(script_content)
+        os.chmod(bridge_script, 0o755)
+    except Exception as e:
+        print(f"创建桥接脚本失败: {e}")
+        return False
+
+    # 启动 socat
+    shell_cmd = (
+        f"nohup socat "
+        f"TCP-LISTEN:{host_port},bind=127.0.0.1,fork,reuseaddr "
+        f"EXEC:{bridge_script} "
+        f">{log_file} 2>&1 &"
+    )
+    print(f"启动 host CDP bridge (127.0.0.1:{host_port})...")
+    try:
+        subprocess.run(["bash", "-c", shell_cmd], capture_output=True, timeout=15)
         time.sleep(1)
         print("socat bridge 已启动")
         return True
@@ -458,9 +491,9 @@ def _ensure_cdp(settings: Settings) -> bool:
 
     print("CDP 就绪超时")
     print("  排查命令:")
-    print(f"    curl -v --max-time 5 http://127.0.0.1:{settings.atrust_cdp_host_port}/json/version")
-    print(f"    tail -n 80 /tmp/host-dockerexec-cdp-{settings.atrust_cdp_host_port}.log")
-    print(f"    docker exec {settings.atrust_container_name} bash -lc 'ss -lntp | grep -E \"{settings.atrust_cdp_internal_port}|{settings.atrust_cdp_host_port}\" || true'")
+    print(f"    curl -v --max-time 5 http://127.0.0.1:9222/json/version")
+    print(f"    tail -n 30 {_cdp_log_file()}")
+    print(f"    docker exec {settings.atrust_container_name} bash -lc 'ss -lntp | grep 9222 || true'")
     return False
 
 
