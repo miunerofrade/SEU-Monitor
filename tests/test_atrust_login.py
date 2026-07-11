@@ -108,10 +108,6 @@ class TestPollVpn:
 class TestPageClosedHandling:
     def test_target_closed_falls_back_to_poll(self, monkeypatch):
         """TargetClosedError 后应进入 _poll_vpn，如果 VPN 恢复则返回 0。"""
-        import scripts.atrust_login as al
-
-        # _fill_login_form 现在已不含 page 操作，它直接调用 _poll_vpn
-        # 测试 _poll_vpn 本身即可覆盖这个场景
         monkeypatch.setattr(
             "scripts.atrust_login.check_vpn_verbose",
             lambda **kw: (True, "OK"),
@@ -120,3 +116,51 @@ class TestPageClosedHandling:
         from seu_monitor.core.settings import Settings
         rc = _poll_vpn(Settings(vpn_check_url="https://cvs.seu.edu.cn"), timeout=5)
         assert rc == 0
+
+
+class TestContainerCdpBridge:
+    def test_cdp_url_uses_localhost(self):
+        """CDP endpoint 应使用 127.0.0.1。"""
+        import scripts.atrust_login as al
+        s = al._load_settings()
+        url = al._cdp_url(s)
+        assert url.startswith("http://127.0.0.1:")
+        assert str(s.atrust_cdp_host_port) in url
+
+    def test_cdp_url_default_port(self, monkeypatch):
+        """默认端口为 9223。"""
+        monkeypatch.delenv("ATRUST_CDP_HOST_PORT", raising=False)
+        from scripts.atrust_login import _load_settings, _cdp_url
+        s = _load_settings()
+        url = _cdp_url(s)
+        assert ":9223" in url
+
+    def test_cdp_already_available(self, monkeypatch):
+        """CDP 已可用时 _ensure_cdp 应直接返回 True。"""
+        import scripts.atrust_login as al
+        monkeypatch.setattr(al, "_check_cdp", lambda s, timeout=3: True)
+        monkeypatch.setattr(al, "_start_chromium_in_container", lambda s: (_ for _ in ()).throw(
+            AssertionError("不应启动 Chromium"),
+        ))
+        s = al._load_settings()
+        assert al._ensure_cdp(s) is True
+
+    def test_cdp_unavailable_returns_false(self, monkeypatch):
+        """_ensure_cdp 在 Chromium 和 bridge 都失败时返回 False。"""
+        import scripts.atrust_login as al
+        monkeypatch.setattr(al, "_check_cdp", lambda s, timeout=3: False)
+        monkeypatch.setattr(al, "_start_chromium_in_container", lambda s: False)
+        monkeypatch.setattr(al, "_start_host_cdp_bridge", lambda s: True)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        s = al._load_settings()
+        assert al._ensure_cdp(s) is False
+
+    def test_bridge_mode_config(self, monkeypatch):
+        """ATRUST_CDP_BRIDGE_MODE 应被正确读取。"""
+        monkeypatch.setenv("ATRUST_CDP_BRIDGE_MODE", "docker_exec")
+        monkeypatch.setenv("ATRUST_USERNAME", "u")
+        monkeypatch.setenv("ATRUST_PASSWORD", "p")
+
+        from scripts.atrust_login import _load_settings
+        s = _load_settings()
+        assert s.atrust_cdp_bridge_mode == "docker_exec"

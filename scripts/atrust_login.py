@@ -68,6 +68,7 @@ def _load_settings() -> Settings:
     settings.atrust_container_name = os.environ.get("ATRUST_CONTAINER_NAME", "atrust")
     settings.atrust_cdp_internal_port = int(os.environ.get("ATRUST_CDP_INTERNAL_PORT", "9222"))
     settings.atrust_cdp_host_port = int(os.environ.get("ATRUST_CDP_HOST_PORT", "9223"))
+    settings.atrust_cdp_bridge_mode = os.environ.get("ATRUST_CDP_BRIDGE_MODE", "docker_exec")
     settings.atrust_container_chrome_user_data = os.environ.get(
         "ATRUST_CONTAINER_CHROME_USER_DATA_DIR", "/root/chrome-atrust-cdp"
     )
@@ -315,36 +316,43 @@ def _login_local(settings: Settings) -> int:
 # 后端：container_cdp
 # ---------------------------------------------------------------------------
 
-def _run_docker(*args: str) -> subprocess.CompletedProcess:
-    """在 aTrust 容器内执行命令。"""
-    cmd = ["docker", "exec", args[0]] if args[0] == "atrust" else ["docker", "exec"] + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+def _cdp_url(settings: Settings) -> str:
+    """返回 CDP endpoint（始终使用 host 本地地址）。"""
+    return f"http://127.0.0.1:{settings.atrust_cdp_host_port}"
 
 
-def _get_container_ip(container_name: str) -> str:
-    """获取 Docker 容器的 IP 地址。"""
-    result = subprocess.run(
-        ["docker", "inspect", "-f", "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container_name],
-        capture_output=True, text=True, timeout=15,
+def _check_cdp(settings: Settings, timeout: int = 10) -> bool:
+    """检查 host 本地 CDP endpoint 是否可用。"""
+    import json
+    import urllib.request
+    url = f"{_cdp_url(settings)}/json/version"
+    try:
+        resp = urllib.request.urlopen(url, timeout=timeout)
+        data = json.loads(resp.read().decode())
+        print(f"CDP 已可用: {data.get('Browser', '?')}")
+        return True
+    except Exception as e:
+        print(f"CDP 连接失败: {e}")
+        return False
+
+
+def _kill_host_cdp_bridge(settings: Settings):
+    """清理 host 上已有的 bridge socat 进程。"""
+    port = settings.atrust_cdp_host_port
+    subprocess.run(
+        ["pkill", "-f", f"TCP-LISTEN:{port}"],
+        capture_output=True, timeout=10,
     )
-    ip = result.stdout.strip()
-    if not ip:
-        raise RuntimeError(f"无法获取容器 {container_name} 的 IP 地址")
-    return ip
 
 
 def _start_chromium_in_container(settings: Settings) -> bool:
-    """在容器内启动 Chromium 并打开 CDP 端口。
-
-    Returns:
-        True 表示启动成功或已在运行。
-    """
+    """在 aTrust 容器内启动 Chromium（监听 127.0.0.1:9222）。"""
     container = settings.atrust_container_name
     chrome_data = settings.atrust_container_chrome_user_data
     display = settings.atrust_container_display
     cdp_port = settings.atrust_cdp_internal_port
+    login_url = settings.atrust_login_url
 
-    # 先检查是否已有 Chromium 进程
     check = subprocess.run(
         ["docker", "exec", container, "pgrep", "-f", "chrome.*atrust-cdp"],
         capture_output=True, text=True, timeout=15,
@@ -354,24 +362,27 @@ def _start_chromium_in_container(settings: Settings) -> bool:
         return True
 
     print("启动容器内 Chromium...")
-    cmd = [
-        "docker", "exec", "-d", container,
-        "chromium",
-        f"--remote-debugging-port={cdp_port}",
-        f"--user-data-dir={chrome_data}",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--ozone-platform=x11",
-        f"--display={display}",
-        "about:blank",
-    ]
+    shell_cmd = (
+        f"export DISPLAY={display} && "
+        f"export XAUTHORITY=/root/.Xauthority && "
+        f"mkdir -p {chrome_data} && "
+        f"setsid -f /usr/bin/chromium "
+        f"--no-sandbox --disable-gpu --disable-dev-shm-usage "
+        f"--ozone-platform=x11 "
+        f"--remote-debugging-port={cdp_port} "
+        f"--user-data-dir={chrome_data} "
+        f"{login_url} "
+        f">/tmp/chromium-cdp.log 2>&1 </dev/null"
+    )
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["docker", "exec", "-d", container, "bash", "-lc", shell_cmd],
+            capture_output=True, text=True, timeout=30,
+        )
         if result.returncode != 0:
             print(f"Chromium 启动失败: {result.stderr.strip()}")
             return False
-        time.sleep(2)
+        time.sleep(3)
         print("Chromium 已启动")
         return True
     except subprocess.TimeoutExpired:
@@ -379,68 +390,88 @@ def _start_chromium_in_container(settings: Settings) -> bool:
         return False
 
 
-def _start_socat_in_container(settings: Settings) -> bool:
-    """在容器内启动 socat，将内部 CDP 端口转发到 host 端口。
+def _start_host_cdp_bridge(settings: Settings) -> bool:
+    """在 host 上启动 socat 桥接 CDP。
 
-    socat TCP-LISTEN:<host_port>,bind=0.0.0.0,fork,reuseaddr \\
-          TCP:127.0.0.1:<internal_port>
+    等价命令:
+      nohup socat TCP-LISTEN:9223,bind=127.0.0.1,fork,reuseaddr \
+        EXEC:'docker exec -i atrust socat - TCP:127.0.0.1:9222',nofork \
+        >/tmp/host-dockerexec-cdp-9223.log 2>&1 &
     """
     container = settings.atrust_container_name
     internal = settings.atrust_cdp_internal_port
     host_port = settings.atrust_cdp_host_port
+    log_file = f"/tmp/host-dockerexec-cdp-{host_port}.log"
 
-    check = subprocess.run(
-        ["docker", "exec", container, "pgrep", "-f", f"socat.*{host_port}"],
-        capture_output=True, text=True, timeout=15,
-    )
-    if check.returncode == 0:
-        print("socat 已在运行")
-        return True
+    # 先清理旧的 bridge
+    _kill_host_cdp_bridge(settings)
+    time.sleep(0.5)
 
-    print(f"启动 socat (0.0.0.0:{host_port} → 127.0.0.1:{internal})...")
+    exec_expr = f"docker exec -i {container} socat - TCP:127.0.0.1:{internal}"
     cmd = [
-        "docker", "exec", "-d", container,
-        "socat",
-        f"TCP-LISTEN:{host_port},bind=0.0.0.0,fork,reuseaddr",
-        f"TCP:127.0.0.1:{internal}",
+        "nohup", "socat",
+        f"TCP-LISTEN:{host_port},bind=127.0.0.1,fork,reuseaddr",
+        f"EXEC:'{exec_expr}',nofork",
+        ">", log_file, "2>&1",
     ]
+    print(f"启动 host CDP bridge (127.0.0.1:{host_port})...")
+    shell_cmd = " ".join(cmd)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        if result.returncode != 0:
-            print(f"socat 启动失败: {result.stderr.strip()}")
-            return False
+        subprocess.run(
+            ["bash", "-c", shell_cmd],
+            capture_output=True, text=True, timeout=15,
+        )
         time.sleep(1)
-        print("socat 已启动")
+        print("socat bridge 已启动")
         return True
-    except subprocess.TimeoutExpired:
-        print("socat 启动超时")
+    except Exception as e:
+        print(f"socat bridge 启动失败: {e}")
         return False
 
 
+def _ensure_cdp(settings: Settings) -> bool:
+    """确保 CDP endpoint 可用。
+
+    - 如果已经可用 → True
+    - 否则启动 Chromium + socat bridge，然后轮询等待。
+
+    Returns:
+        True 可用, False 失败
+    """
+    if _check_cdp(settings, timeout=3):
+        return True
+
+    _kill_host_cdp_bridge(settings)
+
+    if not _start_chromium_in_container(settings):
+        return False
+    if not _start_host_cdp_bridge(settings):
+        return False
+
+    # 轮询等待 CDP 就绪（最多 15s）
+    print("等待 CDP 就绪...")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if _check_cdp(settings, timeout=3):
+            return True
+        time.sleep(1)
+
+    print("CDP 就绪超时")
+    print("  排查命令:")
+    print(f"    curl -v --max-time 5 http://127.0.0.1:{settings.atrust_cdp_host_port}/json/version")
+    print(f"    tail -n 80 /tmp/host-dockerexec-cdp-{settings.atrust_cdp_host_port}.log")
+    print(f"    docker exec {settings.atrust_container_name} bash -lc 'ss -lntp | grep -E \"{settings.atrust_cdp_internal_port}|{settings.atrust_cdp_host_port}\" || true'")
+    return False
+
+
 def _connect_cdp_and_login(settings: Settings) -> int:
-    """通过 CDP 连接到容器内 Chromium 并执行登录。
+    """通过 host 本地 CDP bridge 连接容器内 Chromium 并登录。
 
     Returns:
         0=成功, 1=失败, 3=需要人工处理
     """
-    container_ip = _get_container_ip(settings.atrust_container_name)
-    cdp_url = f"http://{container_ip}:{settings.atrust_cdp_host_port}"
-
-    # 验证 CDP 可达
-    import urllib.request
-    import json
-    try:
-        resp = urllib.request.urlopen(f"{cdp_url}/json/version", timeout=10)
-        data = json.loads(resp.read().decode())
-        print(f"CDP 连接成功: {data.get('Browser', '?')}")
-    except Exception as e:
-        print(f"CDP 连接失败 ({cdp_url}/json/version): {e}")
-        print("  可能原因: Chromium 未启动 / socat 未启动 / 端口不可达")
-        print("  手动排查:")
-        print(f"    docker exec {settings.atrust_container_name} pgrep -af chrome")
-        print(f"    docker exec {settings.atrust_container_name} pgrep -af socat")
-        print(f"    curl {cdp_url}/json/version")
-        return 1
+    cdp_url = _cdp_url(settings)
+    print(f"CDP endpoint: {cdp_url}")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -458,7 +489,6 @@ def _connect_cdp_and_login(settings: Settings) -> int:
             print(f"登录入口: {settings.atrust_login_url}")
             print(f"检查 URL:  {settings.vpn_check_url}")
 
-            # 判断当前页面是否已是认证页
             current_url = page.url.lower()
             already_on_login = any(
                 kw in current_url
@@ -480,18 +510,15 @@ def _connect_cdp_and_login(settings: Settings) -> int:
                 print("未检测到认证页，可能已登录")
                 return _verify_vpn(settings)
 
-            # 检测人工处理（点击前做，点击后页面可能关闭）
             if _detect_manual_intervention(page):
                 _take_screenshot(page, "captcha", settings)
                 print("检测到需要人工处理的页面（验证码/扫码等）")
                 return 3
 
-            # 填写并点击登录
             rc = _fill_login_form(
                 page, settings.atrust_username,
                 settings.atrust_password, settings,
             )
-            # _fill_login_form 内部已调用 _poll_vpn，rc 就是最终结果
             return rc
 
     except Exception as e:
@@ -505,9 +532,7 @@ def _connect_cdp_and_login(settings: Settings) -> int:
 
 def _login_container_cdp(settings: Settings) -> int:
     """容器 CDP 登录后端。"""
-    if not _start_chromium_in_container(settings):
-        return 1
-    if not _start_socat_in_container(settings):
+    if not _ensure_cdp(settings):
         return 1
     return _connect_cdp_and_login(settings)
 
