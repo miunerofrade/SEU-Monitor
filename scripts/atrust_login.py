@@ -59,6 +59,9 @@ def _load_settings() -> Settings:
         "ATRUST_LOGIN_URL",
         "https://vpn.seu.edu.cn",
     )
+    settings.atrust_login_timeout = int(
+        os.environ.get("ATRUST_LOGIN_TIMEOUT", "60")
+    )
 
     # ---- container_cdp 专用配置 ----
     settings.atrust_login_backend = os.environ.get("ATRUST_LOGIN_BACKEND", "local")
@@ -198,25 +201,37 @@ def _fill_login_form(page, username: str, password: str, settings: Settings) -> 
 
     print("提交登录...")
     login_btn.click()
+    print("登录按钮已点击，等待 VPN 恢复...")
 
-    try:
-        page.wait_for_url(
-            lambda url: not any(
-                kw in url.lower()
-                for kw in ["authserver", "login", "cas", "sso"]
-            ),
-            timeout=30000,
+    # 点击后不依赖浏览器页面，进入 healthcheck 轮询
+    timeout = settings.atrust_login_timeout
+    return _poll_vpn(settings, timeout)
+
+
+def _poll_vpn(settings: Settings, timeout: int = 60) -> int:
+    """轮询 VPN healthcheck，不依赖浏览器状态。
+
+    Returns:
+        0 = VPN 可用, 1 = 超时失败
+    """
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        print(f"  VPN 检查 ({attempt})...")
+        ok, msg = check_vpn_verbose(
+            check_url=settings.vpn_check_url,
+            proxy_url=settings.effective_vpn_proxy,
+            timeout=settings.request_timeout,
         )
-        print("页面已跳转，认证完成")
-        return 0
-    except Exception:
-        if _detect_manual_intervention(page):
-            _take_screenshot(page, "post_login_captcha", settings)
-            print("登录后出现人工处理页面")
-            return 3
-        _take_screenshot(page, "login_timeout", settings)
-        print("登录超时")
-        return 1
+        if ok:
+            print(f"VPN healthcheck OK，自动登录成功 ({msg})")
+            return 0
+        print(f"  VPN 尚未就绪: {msg}")
+        time.sleep(2)
+
+    print(f"VPN healthcheck 超时 ({timeout}s)，自动登录失败")
+    return 1
 
 
 def _verify_vpn(settings: Settings) -> int:
@@ -436,8 +451,8 @@ def _connect_cdp_and_login(settings: Settings) -> int:
     try:
         with sync_playwright() as p:
             browser = p.chromium.connect_over_cdp(cdp_url)
-            # CDP 模式下默认已有一个页面
-            pages = browser.contexts[0].pages if browser.contexts else []
+            contexts = browser.contexts
+            pages = contexts[0].pages if contexts else []
             page = pages[0] if pages else browser.new_page()
 
             print(f"登录入口: {settings.atrust_login_url}")
@@ -463,14 +478,27 @@ def _connect_cdp_and_login(settings: Settings) -> int:
             )
             if not on_login:
                 print("未检测到认证页，可能已登录")
-            else:
-                rc = _fill_login_form(page, settings.atrust_username, settings.atrust_password, settings)
-                if rc != 0:
-                    return rc
+                return _verify_vpn(settings)
 
-            return _verify_vpn(settings)
+            # 检测人工处理（点击前做，点击后页面可能关闭）
+            if _detect_manual_intervention(page):
+                _take_screenshot(page, "captcha", settings)
+                print("检测到需要人工处理的页面（验证码/扫码等）")
+                return 3
+
+            # 填写并点击登录
+            rc = _fill_login_form(
+                page, settings.atrust_username,
+                settings.atrust_password, settings,
+            )
+            # _fill_login_form 内部已调用 _poll_vpn，rc 就是最终结果
+            return rc
 
     except Exception as e:
+        e_str = str(e).lower()
+        if any(kw in e_str for kw in ["closed", "detached", "target"]):
+            print(f"登录后页面关闭 ({type(e).__name__})，通过 VPN healthcheck 判断...")
+            return _poll_vpn(settings, settings.atrust_login_timeout)
         print(f"CDP 登录异常: {e}")
         return 1
 
