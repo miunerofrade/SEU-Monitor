@@ -10,6 +10,15 @@ import requests
 from seu_monitor.core.healthcheck import check_vpn, check_vpn_verbose
 
 
+def _make_yaml(content: str) -> str:
+    """创建临时 YAML 配置文件，返回路径。"""
+    tmp = tempfile.mkdtemp()
+    path = os.path.join(tmp, "test.yaml")
+    with open(path, "w") as f:
+        f.write(content)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # 单元测试：check_vpn
 # ---------------------------------------------------------------------------
@@ -83,13 +92,6 @@ class TestCheckVpnVerbose:
 class TestRunnerVpnAuth:
     """测试 runner 的 VPN 判断逻辑。"""
 
-    def _make_yaml(self, content: str) -> str:
-        tmp = tempfile.mkdtemp()
-        path = os.path.join(tmp, "test.yaml")
-        with open(path, "w") as f:
-            f.write(content)
-        return path
-
     def test_vpn_required_fail_fast_exits(self, monkeypatch):
         """VPN_REQUIRED=true + healthcheck失败 + fail_fast=true → 不抓取、不 mark_seen。"""
         import seu_monitor.core.runner as runner
@@ -118,7 +120,7 @@ class TestRunnerVpnAuth:
             never_called,
         )
 
-        yaml_path = self._make_yaml("""
+        yaml_path = _make_yaml("""
 store_root: /tmp/test
 sites:
   - id: jwc
@@ -168,7 +170,7 @@ sites:
             mock_fetch_list,
         )
 
-        yaml_path = self._make_yaml("""
+        yaml_path = _make_yaml("""
 store_root: /tmp/test
 sites:
   - id: jwc
@@ -222,7 +224,7 @@ sites:
             mock_alert,
         )
 
-        yaml_path = self._make_yaml("""
+        yaml_path = _make_yaml("""
 store_root: /tmp/test
 sites:
   - id: jwc
@@ -270,7 +272,7 @@ sites:
             lambda self, **kw: True,
         )
 
-        yaml_path = self._make_yaml("""
+        yaml_path = _make_yaml("""
 store_root: /tmp/test
 sites:
   - id: jwc
@@ -297,3 +299,69 @@ sites:
 
         runner.run_all(settings)
         assert len(tracked_results) >= 1
+
+
+class TestSnapshotFailNoMarkSeen:
+    def test_snapshot_failure_prevents_mark_seen(self, monkeypatch):
+        """snapshot.save 抛异常时不应调用 mark_seen。"""
+        import seu_monitor.core.runner as runner
+        from seu_monitor.core.settings import Settings
+
+        runner._healthcheck_cache = None
+        runner._alert_sent_for_run = False
+
+        # 让 healthcheck 通过
+        monkeypatch.setattr(
+            "seu_monitor.core.runner.check_and_alert_vpn",
+            lambda settings, notifier: True,
+        )
+        # 让 fetch_list 返回一个通知
+        from seu_monitor.core.models import Notice
+        dummy = Notice(site_id="test", column_id="col1", id="abcdef123456", title="t", url="https://x.com", date="2024-01-01")
+
+        monkeypatch.setattr(
+            "seu_monitor.adapters.wp_news.WpNewsAdapter.fetch_list",
+            lambda self, url: [dummy],
+        )
+        # 让 fetch_detail 返回一个正常的 detail
+        from seu_monitor.core.models import Detail
+        monkeypatch.setattr(
+            "seu_monitor.adapters.wp_news.WpNewsAdapter.fetch_detail",
+            lambda self, notice: Detail(html="<p>test</p>", text="test"),
+        )
+        # snapshot.save 抛异常
+        monkeypatch.setattr(
+            "seu_monitor.core.snapshot.SnapshotStore.save",
+            lambda self, **kw: (_ for _ in ()).throw(PermissionError("Permission denied: '/path'")),
+        )
+        # 通知成功
+        monkeypatch.setattr(
+            "seu_monitor.core.notify.FeishuNotifier.send",
+            lambda self, **kw: True,
+        )
+
+        mark_seen_called = []
+        monkeypatch.setattr(
+            "seu_monitor.core.state.StateStore.mark_seen",
+            lambda self, **kw: mark_seen_called.append(kw),
+        )
+
+        yaml_path = _make_yaml("""
+store_root: /tmp/test_store
+sites:
+  - id: jwc
+    name: 测试
+    adapter: wp_news
+    auth: public
+    columns:
+      - id: col1
+        name: 栏目1
+        list_url: https://example.com/list.htm
+""")
+        settings = Settings(
+            config_path=yaml_path,
+            store_root="/tmp/test_store",
+            snapshot_root="/tmp/test_snapshots",
+        )
+        runner.run_all(settings)
+        assert len(mark_seen_called) == 0, "snapshot 失败时不应 mark_seen"

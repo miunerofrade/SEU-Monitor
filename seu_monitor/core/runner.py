@@ -150,6 +150,9 @@ def run_all(settings: Optional[Settings] = None) -> int:
     if settings is None:
         settings = Settings.from_env_and_yaml()
 
+    # 校验关键路径配置
+    settings.validate()
+
     # 加载 YAML 配置
     try:
         sites, raw_yaml = load_config(settings.config_path)
@@ -308,6 +311,7 @@ def run_all(settings: Optional[Settings] = None) -> int:
                     continue
 
                 # 6. 保存快照
+                snapshot_ok = not snapshot_enabled
                 if snapshot is not None and detail is not None:
                     try:
                         saved_attachments = []
@@ -320,7 +324,6 @@ def run_all(settings: Optional[Settings] = None) -> int:
                                 attachments_dir,
                                 session=col_session,
                             )
-                            # 如果有附件因代理错误失败且 VPN_REQUIRED，发一次告警
                             vpn_attachment_fail = any(
                                 a.error and any(
                                     kw in (a.error or "").lower()
@@ -332,31 +335,34 @@ def run_all(settings: Optional[Settings] = None) -> int:
                                 _alert_sent_for_run = True
                                 notifier.send_alert(
                                     message="附件下载出现代理/VPN 错误，VPN 可能已掉线。请检查。",
-                                    title="⚠️ SEU-Monitor: 附件下载异常",
+                                    title="⚠ SEU-Monitor: 附件下载异常",
                                 )
                         snapshot.save(notice, detail, saved_attachments)
+                        snapshot_ok = True
                     except Exception as e:
+                        snapshot_ok = False
                         logger.error("保存快照失败 (%s): %s", notice.id, e)
 
                 # 7. 推送
+                push_ok = False
                 if not settings.dry_run:
                     text_summary = detail.text if detail and detail.text else None
-                    ok = notifier.send(
+                    push_ok = notifier.send(
                         column_name=col_name,
                         title=notice.title,
                         date_text=notice.date,
                         notice_url=notice.url,
                         text_summary=text_summary,
                     )
-                else:
-                    ok = False
 
-                # 8. mark_seen
-                if ok:
+                # 8. mark_seen（仅当 snapshot 成功时才标记，防止数据丢失）
+                if push_ok and snapshot_ok:
                     state.mark_seen(col_name, notice.id)
                     sent_ids.add(notice.id)
                     col_count += 1
                     time.sleep(1)
+                elif push_ok and not snapshot_ok:
+                    print(f"  ⚠ [{col_name}] 通知已发送但 snapshot 失败，不标记已见")
 
             print(f"  ✅ [{col_name}] 处理完毕，新增 {col_count} 条。")
             total_new += col_count

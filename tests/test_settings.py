@@ -83,3 +83,46 @@ class TestResolveProxies:
     def test_effective_vpn_proxy_fallback(self):
         s = Settings(https_proxy="http://proxy:8888")
         assert s.effective_vpn_proxy == "http://proxy:8888"
+
+
+class TestPathValidation:
+    def test_placeholder_path_detected(self):
+        from seu_monitor.core.settings import _is_placeholder_path
+        assert _is_placeholder_path("/path") is True
+        assert _is_placeholder_path("/path/") is True
+        assert _is_placeholder_path("/path/to/seu-snapshots") is True
+        assert _is_placeholder_path("example/path") is True
+        assert _is_placeholder_path("/path/to/store") is True
+
+    def test_legitimate_path_passes(self):
+        from seu_monitor.core.settings import _is_placeholder_path
+        assert _is_placeholder_path("/home/ubuntu/store") is False
+        assert _is_placeholder_path("/data/snapshots") is False
+        assert _is_placeholder_path("store") is False
+
+    def test_empty_path_detected(self):
+        from seu_monitor.core.settings import _is_placeholder_path
+        assert _is_placeholder_path("") is True
+        assert _is_placeholder_path("  ") is True
+        assert _is_placeholder_path(None) is True
+
+    def test_placeholder_store_exits(self):
+        """STORE_ROOT=/path 时 validate() 应退出。"""
+        import sys
+        from seu_monitor.core.settings import Settings
+        s = Settings(store_root="/path")
+        try:
+            s.validate()
+            assert False, "应已退出"
+        except SystemExit as e:
+            assert e.code == 1
+
+    def test_placeholder_snapshot_exits(self):
+        import sys
+        from seu_monitor.core.settings import Settings
+        s = Settings(snapshot_root="/path/to/snapshots")
+        try:
+            s.validate()
+            assert False, "应已退出"
+        except SystemExit as e:
+            assert e.code == 1

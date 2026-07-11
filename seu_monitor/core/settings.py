@@ -6,8 +6,42 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
+# 占位符路径模式 — 匹配后拒绝启动
+_PLACEHOLDER_PATTERNS = [
+    "/path",
+    "/path/",
+    "/path/to/",
+    "example",
+]
+
+
+def _is_placeholder_path(path: str) -> bool:
+    """检查路径是否是未修改的占位符。"""
+    if not path or not path.strip():
+        return True
+    cleaned = path.strip().rstrip("/")
+    for pat in _PLACEHOLDER_PATTERNS:
+        if pat in cleaned:
+            return True
+    return False
+
+
+def _validate_paths(store_root: str, snapshot_root: str):
+    """校验 STORE_ROOT 和 SNAPSHOT_ROOT，占位符时报错退出。"""
+    if _is_placeholder_path(store_root):
+        print("❌ STORE_ROOT 是无效占位符路径，请设置为实际路径。")
+        print("   例如: STORE_ROOT=/home/ubuntu/SEU-Monitor/store")
+        print("   当前值:", repr(store_root))
+        sys.exit(1)
+    if _is_placeholder_path(snapshot_root):
+        print("❌ SNAPSHOT_ROOT 是无效占位符路径，请设置为实际路径。")
+        print("   例如: SNAPSHOT_ROOT=/home/ubuntu/seu-snapshots")
+        print("   当前值:", repr(snapshot_root))
+        sys.exit(1)
 
 
 def _parse_bool(val: str) -> bool:
@@ -65,6 +99,10 @@ class Settings:
     def effective_vpn_proxy(self) -> Optional[str]:
         """返回最终使用的 VPN 代理地址。"""
         return self.vpn_proxy or self.https_proxy or self.http_proxy
+
+    def validate(self):
+        """校验所有关键配置项，失败时退出。"""
+        _validate_paths(self.store_root, self.snapshot_root)
 
     @classmethod
     def from_env_and_yaml(cls, yaml_config: Optional[dict] = None) -> Settings:
