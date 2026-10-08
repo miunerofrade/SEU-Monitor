@@ -161,3 +161,15 @@ class TestSnapshotStore:
             # 没有 emoji
             assert "\U0001f514" not in md
             assert "\U0001f517" not in md
+
+
+def test_image_markdown_uses_local_escaped_path_and_keeps_failed_link(tmp_path):
+    store = SnapshotStore(str(tmp_path))
+    detail = Detail("", "文字", markdown='前文\n![图](<https://example.com/img>)\n后文\n![失败](<https://example.com/fail>)')
+    saved = [SavedAttachment("https://example.com/img", "安排 (1).png"),
+             SavedAttachment("https://example.com/fail", "", error="timeout")]
+    directory = Path(store.save(_make_notice(), detail, saved))
+    markdown = (directory / "text.md").read_text()
+    assert '![图](<attachments/%E5%AE%89%E6%8E%92%20%281%29.png>)' in markdown
+    assert '![失败](<https://example.com/fail>)' in markdown
+    assert markdown.index("前文") < markdown.index("![图]") < markdown.index("后文")

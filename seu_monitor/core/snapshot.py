@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote
 
 from seu_monitor.core.models import Detail, Notice, SavedAttachment
 
@@ -98,7 +99,7 @@ class SnapshotStore:
         html_sha256 = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
 
         # ---- text.md ----
-        text_md = self._format_text_md(notice, detail, now_iso)
+        text_md = self._format_text_md(notice, detail, now_iso, saved_attachments)
         md_path = snap_dir / "text.md"
         _write_text(md_path, text_md)
         text_sha256 = hashlib.sha256(text_md.encode("utf-8")).hexdigest()
@@ -137,8 +138,16 @@ class SnapshotStore:
         return str(snap_dir)
 
     @staticmethod
-    def _format_text_md(notice: Notice, detail: Detail, fetched_at: str) -> str:
+    def _format_text_md(notice: Notice, detail: Detail, fetched_at: str,
+                        saved_attachments=None) -> str:
         """生成 text.md 的 Markdown 内容。"""
+        body = detail.markdown or detail.text
+        for attachment in saved_attachments or []:
+            if not attachment.error and attachment.filename:
+                body = body.replace(
+                    f"(<{attachment.url}>)",
+                    f"(<attachments/{quote(attachment.filename, safe='')}>)",
+                )
         lines = [
             f"# {notice.title}",
             "",
@@ -148,6 +157,6 @@ class SnapshotStore:
             f"发布时间：{notice.date}",
             f"抓取时间：{fetched_at}",
             "",
-            detail.text,
+            body,
         ]
         return "\n".join(lines) + "\n"

@@ -43,3 +43,4 @@ class Detail:
     text: str                                          # 纯文本
     raw_html: str = ""                                 # 原始完整页面 HTML（用于快照）
     attachments: List[AttachmentCandidate] = field(default_factory=list)
+    markdown: str = ""                                # 正文文本及原位置图片引用

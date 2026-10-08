@@ -126,3 +126,17 @@ class TestParseDetail:
         detail = WpNewsAdapter.parse_detail_html(html, "https://example.com")
         assert "正文内容" in detail.text
         assert "alert" not in detail.html
+
+
+def test_body_images_preserve_order_exclude_navigation_and_deduplicate():
+    html = '''<body><img src="/logo.png"><div class="wp_articlecontent">
+    <p>前文</p><img src="/image?id=1" alt="安排">
+    <p>后文</p><img data-src="/image?id=1" src="/placeholder.png">
+    <img src="data:image/png;base64,AA"></div></body>'''
+    detail = WpNewsAdapter.parse_detail_html(html, "https://jwc.seu.edu.cn/page.htm")
+    assert len(detail.attachments) == 1
+    assert detail.attachments[0].url == "https://jwc.seu.edu.cn/image?id=1"
+    assert detail.attachments[0].source == "inline_image"
+    assert detail.markdown.index("前文") < detail.markdown.index("![安排]") < detail.markdown.index("后文")
+    assert "logo" not in detail.markdown
+    assert "data:image" not in detail.markdown

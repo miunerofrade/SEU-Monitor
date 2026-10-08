@@ -144,3 +144,9 @@ def test_migration_keeps_old_and_imports_attachments_and_state(tmp_path):
     assert (target / "state/教务信息/sent_ids.txt").read_text() == "notice123456\n"
     migrate(target, old)
     assert len(list((target / "web").glob("**/meta.json"))) == 1
+
+
+def test_inline_image_without_extension_is_a_download_candidate():
+    from seu_monitor.core.attachments import _is_attachment_candidate
+    assert _is_attachment_candidate(AttachmentCandidate(
+        'https://jwc.seu.edu.cn/image?id=123', '正文图片', source='inline_image'))

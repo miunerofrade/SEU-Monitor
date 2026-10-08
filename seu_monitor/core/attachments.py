@@ -57,6 +57,8 @@ _ATTACHMENT_KEYWORDS = ["附件", "下载", "pdf", "doc", "xls", "ppt", "zip"]
 
 def _is_attachment_candidate(candidate: AttachmentCandidate) -> bool:
     """判断是否是值得尝试下载的附件候选。"""
+    if candidate.source == "inline_image":
+        return True
     url_lower = candidate.url.lower()
 
     # 规则 1：URL 后缀匹配附件扩展名

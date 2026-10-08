@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -53,7 +53,7 @@ class WpNewsAdapter(SiteAdapter):
         """抓取详情页并提取正文。"""
         resp = do_get(self.session, notice.url)
         detail = self.parse_detail_html(resp.text, notice.url)
-        detail.raw_html = resp.text  # 保存完整原始 HTML
+        detail.raw_html = resp.text  # 仅在内存中计算页面摘要
         return detail
 
     # ---- 列表页解析 ----
@@ -146,10 +146,12 @@ class WpNewsAdapter(SiteAdapter):
         body = soup.find("body")
 
         # ---- 策略 1：按 CSS class/id 查找正文容器 ----
-        content = None
+        content = soup.select_one(".wp_articlecontent")
         for selector in ["content", "article", "main", "text", "bodytext",
                          "vsbcontent", "con_content", "article-content",
                          "ArticleContent", "news-content", "NewsContent"]:
+            if content:
+                break
             content = (
                 soup.find(class_=lambda c: c and selector in (c or "").lower())
                 or soup.find(id=lambda i: i and selector in (i or "").lower())
@@ -233,4 +235,22 @@ class WpNewsAdapter(SiteAdapter):
                         url=pdf_url, text=fname, source="pdf_player",
                     ))
 
-        return Detail(html=html_content, text=text, attachments=attachments)
+        # 仅提取正文中的图片，导航、页脚等图片不归档。
+        markdown_body = BeautifulSoup(html_content, "html.parser")
+        for image in markdown_body.find_all("img"):
+            src = image.get("data-src") or image.get("src") or ""
+            image_url = urljoin(base_url, src)
+            if not src or urlsplit(image_url).scheme not in ("http", "https"):
+                image.decompose()
+                continue
+            alt = (image.get("alt") or "正文图片").replace("\n", " ")
+            alt = alt.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+            attachments.append(AttachmentCandidate(
+                url=image_url, text=alt, source="inline_image",
+            ))
+            image.replace_with(f"\n![{alt}](<{image_url}>)\n")
+        markdown = markdown_body.get_text(separator="\n", strip=True)
+        # 同一个文件即使同时作为图片和附件出现，也只下载一次。
+        unique = {candidate.url: candidate for candidate in attachments}
+        return Detail(html=html_content, text=text,
+                      attachments=list(unique.values()), markdown=markdown)
