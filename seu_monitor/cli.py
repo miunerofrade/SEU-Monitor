@@ -60,7 +60,25 @@ def worker(name, directory, values):
             VPN_PASSWORD=values["password"],
             VPN_STATE_DIR=str(directory / "vpn"),
         )
-        return run_service(values["port"])
+        result = run_service(values["port"])
+        if result:
+            from .core.notify import FeishuNotifier
+
+            try:
+                webhook = config.load(directory)["webhook"]
+                if webhook:
+                    FeishuNotifier(webhook).send_alert(
+                        "VPN 连接失败或需要人工验证，已暂停 VPN 自动重试。"
+                        "通知监控继续通过直连抓取。"
+                        "查看 VPN 日志后执行 monitor vpn 恢复；"
+                        "需要短信验证时执行 monitor vpn --interactive。",
+                        title="SEU-Monitor：VPN 已暂停",
+                    )
+            except Exception:
+                print("VPN 告警发送失败，仍暂停自动重试", flush=True)
+            # systemd 的 RestartPreventExitStatus=3 阻止重复启动和告警。
+            return 3
+        return 0
     from .core.runner import run_all
 
     stopped = threading.Event()

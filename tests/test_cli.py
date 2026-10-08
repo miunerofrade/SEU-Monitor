@@ -89,3 +89,27 @@ def test_systemd_failure_does_not_claim_started(tmp_path, monkeypatch, capsys):
 
 def test_unit_quotes_spaces_and_percent():
     assert systemd.quote("/a b/%dir") == '"/a b/%%dir"'
+
+
+@pytest.mark.parametrize('exit_code', [1, 3])
+@pytest.mark.parametrize('alert_result', [True, False, RuntimeError('offline')])
+def test_vpn_failure_alerts_once_and_prevents_restart(tmp_path, monkeypatch, exit_code, alert_result):
+    from seu_monitor.core import vpn, notify
+    values = {**config.DEFAULTS, 'account':'123', 'password':'private', 'webhook':'configured'}
+    config.save(tmp_path, values)
+    monkeypatch.setattr(vpn, 'run_service', lambda port: exit_code)
+    send = Mock(side_effect=alert_result) if isinstance(alert_result, Exception) else Mock(return_value=alert_result)
+    monkeypatch.setattr(notify.FeishuNotifier, 'send_alert', send)
+    assert cli.worker('vpn', tmp_path, values) == 3
+    send.assert_called_once()
+
+
+@pytest.mark.parametrize('exit_code', [0, 1])
+def test_vpn_no_webhook_does_not_send(tmp_path, monkeypatch, exit_code):
+    from seu_monitor.core import vpn, notify
+    config.save(tmp_path, dict(config.DEFAULTS))
+    monkeypatch.setattr(vpn, 'run_service', lambda port: exit_code)
+    send = Mock()
+    monkeypatch.setattr(notify.FeishuNotifier, 'send_alert', send)
+    assert cli.worker('vpn', tmp_path, config.load(tmp_path)) == (3 if exit_code else 0)
+    send.assert_not_called()
