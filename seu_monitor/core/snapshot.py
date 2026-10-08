@@ -1,4 +1,4 @@
-"""按教务处 / 栏目 / 通知归档正文、原始 HTML 和附件元数据。"""
+"""按教务处 / 栏目 / 通知归档正文、附件和元数据。"""
 
 from __future__ import annotations
 
@@ -91,10 +91,10 @@ class SnapshotStore:
             "%Y-%m-%dT%H:%M:%S+08:00"
         )
 
-        # ---- raw.html（优先保存完整原始 HTML） ----
-        raw_path = snap_dir / "raw.html"
+        # HTML 仅用于计算摘要，不落盘；清理此前留下的原网页。
         raw_content = detail.raw_html or detail.html
-        _write_text(raw_path, raw_content)
+        for name in ("raw.html", "raw.html.tmp"):
+            (snap_dir / name).unlink(missing_ok=True)
         html_sha256 = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
 
         # ---- text.md ----

@@ -127,6 +127,7 @@ def test_migration_keeps_old_and_imports_attachments_and_state(tmp_path):
         date="2026-10-08",
     )
     (source / "meta.json").write_text(json.dumps(metadata))
+    (source / "raw.html").write_text("old HTML")
     (source / "attachments").mkdir()
     (source / "attachments/a.pdf").write_bytes(b"pdf")
     state = old / "store/教务信息/sent_ids.txt"
@@ -138,6 +139,8 @@ def test_migration_keeps_old_and_imports_attachments_and_state(tmp_path):
     destination = list((target / "web").glob("**/meta.json"))[0].parent
     assert (destination / "attachments/a.pdf").read_bytes() == b"pdf"
     assert source.exists()
+    assert (source / "raw.html").exists()
+    assert not (destination / "raw.html").exists()
     assert (target / "state/教务信息/sent_ids.txt").read_text() == "notice123456\n"
     migrate(target, old)
     assert len(list((target / "web").glob("**/meta.json"))) == 1

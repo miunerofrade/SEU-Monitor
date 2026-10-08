@@ -29,6 +29,8 @@ def migrate(directory: Path, legacy: Path):
         destination = snapshots._snapshot_dir(notice)
         if not destination.exists():
             shutil.copytree(metadata.parent, destination)
+            for name in ("raw.html", "raw.html.tmp"):
+                (destination / name).unlink(missing_ok=True)
             item["snapshot_path"] = str(destination)
             (destination / "meta.json").write_text(
                 json.dumps(item, ensure_ascii=False, indent=2)

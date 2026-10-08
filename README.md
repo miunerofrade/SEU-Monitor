@@ -1,6 +1,6 @@
 # SEU-Monitor
 
-东南大学教务处通知监控命令行。定时抓取六个栏目，保存正文、原始网页和附件，可通过飞书机器人推送新通知。
+东南大学教务处通知监控命令行。定时抓取六个栏目，保存正文、附件和元数据，可通过飞书机器人推送新通知。不保存原网页 HTML。
 
 只针对教务处，不再要求配置多站点 YAML、Docker、CDP、socat 或 VNC。校园 VPN 使用独立的 zju-connect；监控和 VPN 都由 Linux **systemd 用户服务**管理。
 
@@ -92,7 +92,6 @@ seu-monitor/
 ├── state/<栏目中文名>/sent_ids.txt
 ├── web/教务处/<栏目中文名>/<通知标题--稳定ID>/
 │   ├── text.md                  # 正文、来源链接、发布时间
-│   ├── raw.html                 # 原始网页
 │   ├── meta.json                # 元数据、哈希、附件结果
 │   └── attachments/             # PDF、Word、Excel 等附件原文件
 ├── vpn/                         # 核心、许可证、设备标识及核心状态（目录权限 700）

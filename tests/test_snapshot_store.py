@@ -51,7 +51,7 @@ class TestSnapshotStore:
             assert path.name.startswith("测试公告--")
 
     def test_save_creates_required_files(self):
-        """应生成 raw.html、text.md、meta.json。"""
+        """只保存正文和元数据，不保留原始网页。"""
         with tempfile.TemporaryDirectory() as tmp:
             store = SnapshotStore(snapshot_root=tmp)
             notice = _make_notice(
@@ -65,13 +65,13 @@ class TestSnapshotStore:
             snap_path = store.save(notice, detail)
             path = Path(snap_path)
 
-            assert (path / "raw.html").exists()
+            assert not (path / "raw.html").exists()
             assert (path / "text.md").exists()
             assert (path / "meta.json").exists()
 
-            # raw.html 应包含原始 HTML
-            raw = (path / "raw.html").read_text(encoding="utf-8")
-            assert "正文内容" in raw
+            (path / "raw.html").write_text("legacy HTML")
+            store.save(notice, detail)
+            assert not (path / "raw.html").exists()
 
             # text.md 应包含标题和正文
             md = (path / "text.md").read_text(encoding="utf-8")
