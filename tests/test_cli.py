@@ -46,7 +46,9 @@ def test_vpn_credentials_are_saved_not_in_systemd_command(tmp_path, monkeypatch)
     calls.clear()
     assert cli.main(["--data-dir", str(directory)]) == 0
     assert ("start", "seu-vpn.service") in calls
-    assert ("start", "seu-monitor.service") in calls
+    assert ("disable", "--now", "seu-monitor.service") in calls
+    assert ("enable", "seu-monitor.timer") in calls
+    assert ("start", "seu-monitor.timer") in calls
 
 
 def test_typo_rejected():
@@ -70,6 +72,7 @@ def test_stop_disables_both_units(monkeypatch):
     monkeypatch.setattr(systemd, "command", lambda *args, **kw: calls.append(args))
     systemd.stop()
     assert calls == [
+        ("disable", "--now", "seu-monitor.timer"),
         ("disable", "--now", "seu-monitor.service"),
         ("disable", "--now", "seu-vpn.service"),
     ]
@@ -113,3 +116,32 @@ def test_vpn_no_webhook_does_not_send(tmp_path, monkeypatch, exit_code):
     monkeypatch.setattr(notify.FeishuNotifier, 'send_alert', send)
     assert cli.worker('vpn', tmp_path, config.load(tmp_path)) == (3 if exit_code else 0)
     send.assert_not_called()
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_scan_worker_runs_once_then_exits(tmp_path, monkeypatch, fails):
+    from seu_monitor.core import runner
+    config.save(tmp_path, dict(config.DEFAULTS))
+    scan = Mock(side_effect=RuntimeError('offline')) if fails else Mock(return_value=0)
+    monkeypatch.setattr(runner, 'run_all', scan)
+    assert cli.worker('monitor', tmp_path, config.load(tmp_path)) == (1 if fails else 0)
+    scan.assert_called_once()
+
+
+def test_timer_tracks_config_and_scan_service_is_not_persistent(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
+    monkeypatch.setattr(systemd, 'command', Mock())
+    data = tmp_path/'data'
+    data.mkdir()
+    config.save(data, {**config.DEFAULTS, 'interval':7200})
+    systemd.install(data)
+    units = tmp_path/'.config/systemd/user'
+    service = (units/'seu-monitor.service').read_text()
+    timer = (units/'seu-monitor.timer').read_text()
+    assert 'Type=oneshot' in service and 'Restart=no' in service
+    assert 'WantedBy=default.target' not in service
+    assert 'OnActiveSec=1s' in timer and 'OnUnitInactiveSec=7200s' in timer
+    assert 'WantedBy=timers.target' in timer
+    config.save(data, {**config.DEFAULTS, 'interval':1800})
+    systemd.install(data)
+    assert 'OnUnitInactiveSec=1800s' in (units/'seu-monitor.timer').read_text()

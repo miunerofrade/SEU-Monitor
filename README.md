@@ -21,15 +21,15 @@ pip install -e .
 ## 四个基本命令
 
 ```bash
-monitor           # 启动后台监控，立即扫描一次，然后每小时扫描
+monitor           # 启用定时器，启动后扫描一次，此后默认间隔一小时
 monitor stop      # 停止监控和 VPN，同时取消开机启动
-monitor ps        # 查看两个服务的状态和文件保存位置
+monitor ps        # 查看定时器、下次运行时间和 VPN 状态
 monitor doctor    # 检查配置、教务处连接；配置 VPN 后也检查校园通道
 ```
 
-`monitor` 自动生成 `~/.config/systemd/user/seu-monitor.service` 和 `seu-vpn.service`，并调用 `systemctl --user` 启动服务。重复启动复用同一套服务。
+`monitor` 自动生成 `~/.config/systemd/user/` 下的 `seu-monitor.service`、`seu-monitor.timer` 和 `seu-vpn.service`。通知扫描是一次性服务，由 timer 定时启动，扫描结束后退出；VPN 是常驻服务。重复启动复用同一套服务，从旧版本升级时自动停用原来的常驻监控服务。
 
-systemd 负责保持监控程序在后台运行，以及进程异常退出后的重启。监控每轮失败会保留重试状态，下一轮重新扫描。VPN 启动失败、通道失效或需要人工验证时，尝试发送一次飞书告警，随后暂停 VPN 自动重试，监控继续直连抓取。告警发送失败也不会循环重发；未配置飞书时只在日志中记录失败。
+systemd timer 负责安排每轮扫描，失败的通知在下一轮重试；等待期间没有监控进程运行。VPN 启动失败、通道失效或需要人工验证时，尝试发送一次飞书告警，随后暂停 VPN 自动重试，监控继续直连抓取。告警发送失败也不会循环重发；未配置飞书时只在日志中记录失败。
 
 排查后执行 `monitor vpn` 手动恢复；需要短信验证时执行 `monitor vpn --interactive`。每次手动恢复后的再次失败会产生一条新的告警。开机时已启用的 VPN 服务仍会尝试连接一次。
 
@@ -52,7 +52,7 @@ monitor --webhook '飞书机器人地址' # 保存推送地址并启动
 monitor --webhook ''              # 关闭推送，仅保存通知
 ```
 
-间隔单位为秒，至少 60 秒。修改后自动保存并重启监控服务。定时扫描由常驻监控程序执行，systemd 管理这个进程，不需要额外的 cron 或 timer。
+间隔单位为秒，至少 60 秒，从上一轮扫描结束时开始计算。修改后自动保存并重新启动 timer，随后扫描一次。开机时 timer 自动启用并扫描一次，无需额外配置 cron；同一个扫描服务不会并发运行。
 
 不配置飞书也会归档并去重。配置飞书后，只有正文和附件保存成功、推送成功才标记通知已处理；网络、附件或推送失败都会在下一轮重试。已经保存且 SHA256 校验通过的附件直接复用。
 
@@ -138,10 +138,14 @@ monitor --data-dir /绝对路径/monitor-data ps
 journalctl --user -u seu-monitor -f
 journalctl --user -u seu-vpn -f
 systemctl --user status seu-monitor.service seu-vpn.service
+systemctl --user list-timers seu-monitor.timer  # 查看下次扫描时间
+systemctl --user start seu-monitor.service     # 立即扫描一次
 systemctl --user restart seu-vpn.service
 ```
 
 `monitor` 返回成功意味着 systemd 接受了启动请求；VPN 下载、认证和连接需要时间，实际健康状态请用 `monitor doctor` 和日志检查。
+
+扫描完成后 `seu-monitor.service` 显示 `inactive (dead)` 是正常状态；`seu-monitor.timer` 应显示 `active (waiting)`，到下次时间会重新启动扫描。
 
 遇到 `Failed to connect to bus`，先确认这是有 systemd 用户会话的 Linux 主机，并执行 `loginctl enable-linger`。在 macOS、没有 systemd 的容器或 CI 中，不使用后台启动命令。
 

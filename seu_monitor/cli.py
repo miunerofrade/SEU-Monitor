@@ -5,9 +5,7 @@ import argparse
 import getpass
 import logging
 import os
-import signal
 import sys
-import threading
 from pathlib import Path
 from . import config, systemd
 from .core.settings import Settings
@@ -81,19 +79,15 @@ def worker(name, directory, values):
         return 0
     from .core.runner import run_all
 
-    stopped = threading.Event()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: stopped.set())
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
-    while not stopped.is_set():
-        try:
-            run_all(settings_for(directory, config.load(directory)))
-        except Exception:
-            logging.exception("扫描失败，下轮重试")
-        stopped.wait(config.load(directory)["interval"])
-    return 0
+    try:
+        run_all(settings_for(directory, config.load(directory)))
+        return 0
+    except Exception:
+        logging.exception("扫描失败，下次定时运行时重试")
+        return 1
 
 
 def main(argv=None):
