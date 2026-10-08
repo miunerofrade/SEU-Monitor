@@ -2,7 +2,7 @@
 
 东南大学教务处通知监控命令行。定时抓取六个栏目，保存正文、附件和元数据，可通过飞书机器人推送新通知。不保存原网页 HTML。
 
-只针对教务处，不再要求配置多站点 YAML、Docker、CDP、socat 或 VNC。校园 VPN 使用独立的 zju-connect；监控和 VPN 都由 Linux **systemd 用户服务**管理。
+监控范围为教务处的六个栏目。校园 VPN 使用原生 zju-connect；监控和 VPN 由 Linux **systemd 用户服务**管理。
 
 ## 安装
 
@@ -27,7 +27,7 @@ monitor ps        # 查看两个服务的状态和文件保存位置
 monitor doctor    # 检查配置、教务处连接；配置 VPN 后也检查校园通道
 ```
 
-`monitor` 自动写入 `~/.config/systemd/user/seu-monitor.service` 和 `seu-vpn.service`，并调用 `systemctl --user`。重复启动不会创建多个进程。无需手写 unit，无需 Docker。
+`monitor` 自动生成 `~/.config/systemd/user/seu-monitor.service` 和 `seu-vpn.service`，并调用 `systemctl --user` 启动服务。重复启动复用同一套服务。
 
 systemd 负责保持程序在后台运行，以及进程异常退出后的重启。监控每轮失败会保留重试状态，下一轮重新扫描；VPN 退出或通道失效后由 systemd 重启。需要验证码或二次认证时停止自动重试。
 
@@ -54,6 +54,19 @@ monitor --webhook ''              # 关闭推送，仅保存通知
 
 第一次启动会处理列表页当前已有的通知，配置飞书后这些通知也会推送。
 
+## GitHub Actions（按需启用）
+
+本仓库的 `SEU_Monitor` 抓取工作流已停用，日常监控由服务器上的 systemd 服务运行。代码测试工作流仍正常运行。
+
+Fork 后如需使用 GitHub Actions 监控，请在自己的仓库完成以下设置：
+
+1. 在 **Settings → Secrets and variables → Actions** 中添加 `FEISHU_WEBHOOK` Secret，值为飞书机器人地址。
+2. 在 **Settings → Actions → General → Workflow permissions** 中选择 **Read and write permissions**，用于保存已推送通知记录。
+3. 打开 **Actions**，启用 fork 仓库的 Actions，再进入 **SEU_Monitor → Enable workflow** 启用该工作流。
+4. 点击 **Run workflow** 手动执行一次，确认推送正常。
+
+启用后每天北京时间 **08:00** 扫描一次；修改 `.github/workflows/monitor.yml` 的 cron 可调整时间。定时任务的实际启动时间可能延后。GitHub Actions 使用独立的已处理记录，与服务器的数据不共享；同一机器人同时启用两种部署方式会重复推送。
+
 ## 校园 VPN
 
 ```bash
@@ -64,7 +77,7 @@ monitor ps
 monitor doctor
 ```
 
-只有 `--password`，不兼容错拼。交互输入不会把密码放进 shell 历史。以后直接 `monitor` 会按已保存的账号配置启动 VPN，再启动监控。
+省略 `--password` 时交互输入密码，避免密码留在 shell 历史中。以后直接 `monitor` 会使用已保存的账号配置启动 VPN，再启动监控。
 
 默认 HTTP 代理为 `127.0.0.1:8888`，只监听本机，不改系统路由。需要更换端口可用 `monitor vpn --port 8889`。旧 aTrust 容器若仍占用端口，需要先停掉。
 
@@ -78,7 +91,7 @@ monitor vpn --interactive
 
 它会停止后台 VPN，在当前终端用 HTTP 登录、发送短信并提示输入验证码，SSH 中也可以使用，不需要图形桌面。认证完成后代理随这个前台进程运行；退出后执行 `monitor vpn` 恢复后台服务。稳定设备标识保存在 VPN 数据目录中，避免每次随机生成新设备。
 
-如果学校要求每次连接都验证，仍需每次人工输入。图形验证码目前没有接入；遇到此情况会明确提示并停止自动重试，不会偷偷启动浏览器。
+学校要求短信验证时需要人工输入验证码。图形验证码暂不支持，遇到时会提示并停止自动重试。
 
 高级场景可用环境变量 `VPN_BINARY` 指定已安装的核心；需写入服务时使用 `systemctl --user edit seu-vpn.service` 添加 `[Service]` 下的 `Environment=VPN_BINARY=/绝对路径/zju-connect`，随后重启服务。默认情况下不需要此配置。
 
@@ -101,6 +114,8 @@ seu-monitor/
 目录结构参考 SEUdaily：一个通知一个目录，正文和附件一起保存；不会因重新扫描或通知标题变化不断创建新快照。附件名带 URL 哈希，避免同名附件覆盖；元数据记录内容 SHA256，用于复用前校验。下载失败的文件不当作成功附件。
 
 六个栏目：最新动态、教务信息、学籍管理、实践教学、国际交流、文化素质教育。栏目定义集中在 `seu_monitor/sources/jwc.py`。
+
+正文目前保存为纯文本，内嵌的 `<img>` 图片不会下载，也不会出现在 `text.md` 中。附件下载包含 PDF、Word、Excel 等文件，以及被识别为附件的图片链接；通知如果只有一张正文图片，文本归档无法保留其内容。
 
 从旧仓库升级时，首次在仓库目录执行 `monitor`，会将当前目录的 `snapshots/` 中教务处快照及 `store/` 已处理记录导入新目录。保留旧文件，不覆盖已存在的新通知目录；仅执行一次。旧 `sites.yaml` 和复杂 VPN 环境配置不再使用。不要把配置、认证状态或校园资源提交到公开仓库。
 
@@ -156,10 +171,6 @@ pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-本地及 Ubuntu 的 87 项测试已通过，覆盖配置、服务命令、迁移、附件保存/复用、CAS 票据拦截和 RSA 短信认证。另在 Ubuntu 实测了 systemd 启停、六个栏目列表抓取、一条通知的正文和 17 个附件归档；飞书请求在发送前被拦截，核对了标题、栏目、发布日期、摘要与原文链接，没有实际发送。
-
-原生 VPN 也在卸载 Playwright 后实测连接成功，通过校园通道检查。本次验证不代表以后学校的认证策略不会变化；图形验证码尚未接入。
-
-测试模拟网络、VPN 核心和 systemd，不会发送真实飞书消息或使用真实校园账号。实际登录能力取决于学校当时的认证流程。
+测试覆盖配置、服务命令、迁移、附件保存及复用、CAS 票据拦截和短信认证，通过模拟网络、VPN 核心和 systemd 运行。
 
 zju-connect 为独立的可选 AGPL-3.0 程序，使用未修改的官方发布。自动安装会在核心旁保存 LICENSE 和 SOURCE.txt；对应[固定版本源码](https://github.com/Mythologyli/zju-connect/tree/5d7f5b11fcf231f72a0ec0d888bf0f2eadcce1da)。本项目自身代码许可证保持不变。
