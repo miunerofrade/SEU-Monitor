@@ -24,7 +24,8 @@ def run_all(settings: Settings | None = None) -> int:
     notifier = FeishuNotifier(settings.feishu_webhook)
     proxies = settings.resolve_proxies_dict()
     if settings.vpn_enabled and not run_check_vpn(settings):
-        raise RuntimeError("校园 VPN 不可用，保留状态，下次重试")
+        logger.warning("校园 VPN 不可用，本轮改为直连抓取；失败的栏目或通知下次重试")
+        proxies = {}
     total = 0
     with new_session(settings.request_timeout, proxy_override=proxies) as session:
         adapter = WpNewsAdapter(site_config(), session=session)

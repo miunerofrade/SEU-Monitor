@@ -101,15 +101,17 @@ def test_failed_attachment_prevents_mark_seen(tmp_path, monkeypatch):
     assert not list((tmp_path / "state").glob("**/sent_ids.txt"))
 
 
-def test_vpn_failure_does_not_scan(tmp_path, monkeypatch):
+def test_vpn_failure_scans_directly(tmp_path, monkeypatch):
     _, _, settings = setup_scan(tmp_path, monkeypatch)
     settings.vpn_enabled = True
+    settings.https_proxy = "http://127.0.0.1:8888"
     monkeypatch.setattr(runner, "run_check_vpn", lambda settings: False)
-    scan = Mock()
-    monkeypatch.setattr(runner.WpNewsAdapter, "fetch_list", scan)
-    with pytest.raises(RuntimeError):
-        runner.run_all(settings)
-    scan.assert_not_called()
+    original_session = runner.new_session
+    create = Mock(side_effect=original_session)
+    monkeypatch.setattr(runner, "new_session", create)
+    assert runner.run_all(settings) == 1
+    create.assert_called_once_with(settings.request_timeout, proxy_override={})
+    assert settings.https_proxy == "http://127.0.0.1:8888"
 
 
 def test_migration_keeps_old_and_imports_attachments_and_state(tmp_path):
@@ -150,3 +152,24 @@ def test_inline_image_without_extension_is_a_download_candidate():
     from seu_monitor.core.attachments import _is_attachment_candidate
     assert _is_attachment_candidate(AttachmentCandidate(
         'https://jwc.seu.edu.cn/image?id=123', '正文图片', source='inline_image'))
+
+
+def test_failed_column_and_notice_do_not_block_remaining_scan(tmp_path, monkeypatch):
+    notice, detail, settings = setup_scan(tmp_path, monkeypatch)
+    settings.vpn_enabled = True
+    monkeypatch.setattr(runner, 'run_check_vpn', lambda settings: False)
+    monkeypatch.setattr(runner, 'site_config', lambda: {
+        'id':'jwc', 'columns':[
+            {'id':'zxdt','name':'最新动态','list_url':'unavailable'},
+            {'id':'jwxx','name':'教务信息','list_url':'available'}]})
+    broken = Notice('jwc','jwxx','broken123456','访问失败','https://jwc.seu.edu.cn/broken','2026-10-08')
+    def listing(self, url):
+        if url == 'unavailable': raise ConnectionError('offline')
+        return [notice, broken]
+    def details(self, item):
+        if item.id == broken.id: raise ConnectionError('offline')
+        return detail
+    monkeypatch.setattr(runner.WpNewsAdapter, 'fetch_list', listing)
+    monkeypatch.setattr(runner.WpNewsAdapter, 'fetch_detail', details)
+    assert runner.run_all(settings) == 1
+    assert (tmp_path/'state/教务信息/sent_ids.txt').read_text().splitlines() == [notice.id]
