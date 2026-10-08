@@ -21,8 +21,20 @@ logger = logging.getLogger(__name__)
 
 # 常见附件扩展名（小写）
 _ATTACHMENT_EXTENSIONS = {
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".zip", ".rar", ".7z", ".txt", ".jpg", ".jpeg", ".png",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".txt",
+    ".jpg",
+    ".jpeg",
+    ".png",
 }
 
 # 可接受的 Content-Type 前缀
@@ -86,9 +98,11 @@ def _resolve_filename(
     # 策略 1：Content-Disposition
     cd = response.headers.get("Content-Disposition", "")
     if cd:
-        import cgi
-        _, params = cgi.parse_header(cd)
-        fname = params.get("filename", "")
+        from email.message import Message
+
+        header = Message()
+        header["Content-Disposition"] = cd
+        fname = header.get_filename() or ""
         if fname:
             return _sanitize_filename(fname)
 
@@ -129,32 +143,37 @@ def download_attachment(
     url = candidate.url
     result = SavedAttachment(url=url, filename="")
 
+    resp = None
+    temporary = None
     try:
         resp = session.get(url, timeout=15, stream=True)
         resp.raise_for_status()
 
-        # 如果返回了 HTML 且 URL 不像附件扩展名，跳过
-        if _is_html_content(resp) and not candidate.url.lower().endswith(
-            tuple(_ATTACHMENT_EXTENSIONS)
-        ):
-            result.error = "跳过：响应为 text/html，URL 后缀不匹配附件格式"
+        # Reject login/error HTML even when the URL ends in .pdf.
+        if _is_html_content(resp):
+            result.error = "跳过：响应为 text/html，不是附件原文件"
             logger.debug("跳过 HTML 响应: %s", url)
             return result
 
         # 确定文件名
         filename = _resolve_filename(resp, candidate, index)
+        # Distinct URLs with equal names must not overwrite each other.
+        stem, ext = os.path.splitext(filename)
+        filename = f"{stem}--{hashlib.sha256(url.encode()).hexdigest()[:10]}{ext}"
         filepath = target_dir / filename
 
         # 下载并计算 SHA-256
         sha256 = hashlib.sha256()
         size = 0
-        with open(filepath, "wb") as f:
+        temporary = filepath.with_name(filepath.name + ".part")
+        with open(temporary, "wb") as f:
             for chunk in resp.iter_content(chunk_size=65536):
                 if chunk:
                     f.write(chunk)
                     sha256.update(chunk)
                     size += len(chunk)
 
+        temporary.replace(filepath)
         result.filename = filename
         result.sha256 = sha256.hexdigest()
         result.size = size
@@ -165,6 +184,12 @@ def download_attachment(
         error_msg = str(e)
         result.error = error_msg
         logger.debug("附件下载失败 (%s): %s", url, error_msg)
+
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        if resp is not None:
+            resp.close()
 
     return result
 

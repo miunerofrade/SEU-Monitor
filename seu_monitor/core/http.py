@@ -57,7 +57,8 @@ def new_session(
     session.timeout = timeout  # 作为属性暂存，调用时用 session.timeout
 
     # 代理：优先用调用方传入的代理，否则用环境变量
-    proxies = proxy_override or _resolve_proxy()
+    proxies = proxy_override if proxy_override is not None else _resolve_proxy()
+    session.trust_env = False
     if proxies:
         session.proxies.update(proxies)
 

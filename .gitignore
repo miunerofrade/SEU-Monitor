@@ -25,3 +25,8 @@ snapshots/
 # Logs
 *.log
 logs/
+
+.env
+.vpn/
+
+.ruff_cache/

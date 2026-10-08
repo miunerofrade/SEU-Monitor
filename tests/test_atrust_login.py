@@ -1,164 +1,139 @@
-"""测试 aTrust 登录脚本的 URL 逻辑和页面关闭处理。"""
+"""Native VPN regression tests; Docker/CDP behavior has been retired."""
 
+import hashlib
+import io
+import json
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
+from seu_monitor.core import vpn
+
+CALLBACK = (
+    "https://vpn.seu.edu.cn/passport/v1/auth/cas?sfDomain=CAS-auth&ticket=one-use"
+)
 
 
-class TestLoginUrlSettings:
-    def test_loads_login_url_from_env(self, monkeypatch):
-        monkeypatch.setenv("ATRUST_LOGIN_URL", "https://vpn.seu.edu.cn")
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-        monkeypatch.setenv("ATRUST_LOGIN_BACKEND", "container_cdp")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_login_url == "https://vpn.seu.edu.cn"
-        assert s.atrust_login_backend == "container_cdp"
-
-    def test_default_login_url(self, monkeypatch):
-        monkeypatch.delenv("ATRUST_LOGIN_URL", raising=False)
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_login_url == "https://vpn.seu.edu.cn"
-
-    def test_vpn_check_url_is_different(self, monkeypatch):
-        monkeypatch.setenv("ATRUST_LOGIN_URL", "https://vpn.seu.edu.cn")
-        monkeypatch.setenv("VPN_CHECK_URL", "https://cvs.seu.edu.cn")
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_login_url != s.vpn_check_url
-
-    def test_login_timeout_default(self, monkeypatch):
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_login_timeout == 60
-
-    def test_login_timeout_from_env(self, monkeypatch):
-        monkeypatch.setenv("ATRUST_LOGIN_TIMEOUT", "120")
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_login_timeout == 120
+def test_callback_validates_and_removes_default_port():
+    assert vpn.validate_callback(CALLBACK.replace(".cn/", ".cn:443/")) == CALLBACK
 
 
-class TestLoginReturnCodes:
-    def test_missing_credentials_returns_2(self, monkeypatch):
-        monkeypatch.delenv("ATRUST_USERNAME", raising=False)
-        monkeypatch.delenv("ATRUST_PASSWORD", raising=False)
-
-        from scripts.atrust_login import do_login
-        assert do_login() == 2
-
-    def test_no_check_url_returns_2(self, monkeypatch):
-        monkeypatch.delenv("VPN_CHECK_URL", raising=False)
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import do_login
-        assert do_login() == 2
-
-    def test_healthy_vpn_no_login(self, monkeypatch):
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-        monkeypatch.setenv("VPN_CHECK_URL", "https://cvs.seu.edu.cn")
-        monkeypatch.setattr(
-            "scripts.atrust_login.check_vpn_verbose",
-            lambda **kw: (True, "OK"),
-        )
-
-        from scripts.atrust_login import do_login
-        assert do_login() == 0
+@pytest.mark.parametrize(
+    "url",
+    [
+        CALLBACK.replace("https:", "http:"),
+        CALLBACK.replace("vpn.seu", "evil.seu"),
+        CALLBACK.replace("CAS-auth", "other"),
+        CALLBACK.replace("ticket=one-use", "ticket="),
+        CALLBACK.replace(".cn/", ".cn:444/"),
+    ],
+)
+def test_callback_rejects_wrong_origin_or_ticket(url):
+    with pytest.raises(ValueError):
+        vpn.validate_callback(url)
 
 
-class TestPollVpn:
-    def test_poll_returns_0_when_vpn_ok(self, monkeypatch):
-        """healthcheck 成功后 _poll_vpn 返回 0。"""
-        monkeypatch.setattr(
-            "scripts.atrust_login.check_vpn_verbose",
-            lambda **kw: (True, "OK"),
-        )
-        from scripts.atrust_login import _poll_vpn
-        from seu_monitor.core.settings import Settings
-        rc = _poll_vpn(Settings(), timeout=10)
-        assert rc == 0
-
-    def test_poll_returns_1_on_timeout(self, monkeypatch):
-        """healthcheck 一直失败时 _poll_vpn 返回 1。"""
-        monkeypatch.setattr(
-            "scripts.atrust_login.check_vpn_verbose",
-            lambda **kw: (False, "FAILED"),
-        )
-        from scripts.atrust_login import _poll_vpn
-        from seu_monitor.core.settings import Settings
-        rc = _poll_vpn(Settings(), timeout=2)
-        assert rc == 1
+def test_environment_hides_secrets_and_avoids_proxy_recursion(monkeypatch):
+    for key in (
+        "VPN_PASSWORD",
+        "ATRUST_PASSWORD",
+        "FEISHU_WEBHOOK",
+        "HTTP_PROXY",
+        "ZJU_CONNECT_PASSWORD",
+    ):
+        monkeypatch.setenv(key, "secret")
+    env = vpn.core_environment()
+    assert "VPN_PASSWORD" not in env and "HTTP_PROXY" not in env
+    assert "tlsmlkem=0" in env["GODEBUG"]
+    assert "secret" not in " ".join(vpn.core_command(Path("core"), 8888, Path("state")))
 
 
-class TestPageClosedHandling:
-    def test_target_closed_falls_back_to_poll(self, monkeypatch):
-        """TargetClosedError 后应进入 _poll_vpn，如果 VPN 恢复则返回 0。"""
-        monkeypatch.setattr(
-            "scripts.atrust_login.check_vpn_verbose",
-            lambda **kw: (True, "OK"),
-        )
-        from scripts.atrust_login import _poll_vpn
-        from seu_monitor.core.settings import Settings
-        rc = _poll_vpn(Settings(vpn_check_url="https://cvs.seu.edu.cn"), timeout=5)
-        assert rc == 0
+def test_installer_verified_download_then_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("VPN_STATE_DIR", str(tmp_path))
+    monkeypatch.delenv("VPN_BINARY", raising=False)
+    monkeypatch.setattr(vpn.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(vpn.platform, "machine", lambda: "x86_64")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zipped:
+        zipped.writestr("zju-connect", b"binary")
+    archive = buffer.getvalue()
+    manifest = {
+        "assets": [
+            {
+                "name": "zju-connect-linux-amd64.zip",
+                "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
+                "browser_download_url": "https://example.com/core.zip",
+                "url": "https://api.github.com/repos/Mythologyli/zju-connect/releases/assets/1",
+            }
+        ]
+    }
+    opener = Mock()
+    opener.open.side_effect = [
+        io.BytesIO(json.dumps(manifest).encode()),
+        io.BytesIO(archive),
+    ]
+    monkeypatch.setattr(vpn, "build_opener", lambda *args: opener)
+    binary = vpn.install_core()
+    assert binary.read_bytes() == b"binary"
+    assert (binary.parent / "LICENSE").is_file()
+    assert vpn.install_core() == binary
+    assert opener.open.call_count == 2
+    request = opener.open.call_args_list[1].args[0]
+    assert request.get_header("Accept") == "application/octet-stream"
+    assert request.full_url.endswith("?download=1")
 
 
-class TestContainerCdpBridge:
-    def test_cdp_url_uses_localhost(self):
-        """CDP endpoint 固定 127.0.0.1:9222。"""
-        import scripts.atrust_login as al
-        s = al._load_settings()
-        url = al._cdp_url(s)
-        assert url == "http://127.0.0.1:9222"
+def test_installer_rejects_bad_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv("VPN_STATE_DIR", str(tmp_path))
+    monkeypatch.delenv("VPN_BINARY", raising=False)
+    monkeypatch.setattr(vpn.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(vpn.platform, "machine", lambda: "x86_64")
+    opener = Mock()
+    manifest = {
+        "assets": [
+            {
+                "name": "zju-connect-linux-amd64.zip",
+                "digest": "sha256:wrong",
+                "browser_download_url": "https://example.com/core.zip",
+            }
+        ]
+    }
+    opener.open.side_effect = [
+        io.BytesIO(json.dumps(manifest).encode()),
+        io.BytesIO(b"bad"),
+    ]
+    monkeypatch.setattr(vpn, "build_opener", lambda *args: opener)
+    with pytest.raises(RuntimeError, match="校验失败"):
+        vpn.install_core()
+    assert not (tmp_path / "bin/zju-connect").exists()
 
-    def test_cdp_url_default_port(self):
-        """CDP endpoint 固定为 9222。"""
-        import scripts.atrust_login as al
-        s = al._load_settings()
-        url = al._cdp_url(s)
-        assert ":9222" in url
 
-    def test_cdp_already_available(self, monkeypatch):
-        """CDP 已可用时 _ensure_cdp 应直接返回 True。"""
-        import scripts.atrust_login as al
-        monkeypatch.setattr(al, "_check_cdp", lambda s, timeout=3: True)
-        monkeypatch.setattr(al, "_start_chromium_in_container", lambda s: (_ for _ in ()).throw(
-            AssertionError("不应启动 Chromium"),
-        ))
-        s = al._load_settings()
-        assert al._ensure_cdp(s) is True
+def test_service_consumes_callback_and_cleans_up_without_logging_ticket(
+    tmp_path, monkeypatch, capsys
+):
+    import threading
+    from unittest.mock import MagicMock
 
-    def test_cdp_unavailable_returns_false(self, monkeypatch):
-        """_ensure_cdp 在 Chromium 和 bridge 都失败时返回 False。"""
-        import scripts.atrust_login as al
-        monkeypatch.setattr(al, "_check_cdp", lambda s, timeout=3: False)
-        monkeypatch.setattr(al, "_start_chromium_in_container", lambda s: False)
-        monkeypatch.setattr(al, "_start_host_cdp_bridge", lambda s: True)
-        monkeypatch.setattr("time.sleep", lambda s: None)
-        s = al._load_settings()
-        assert al._ensure_cdp(s) is False
-
-    def test_bridge_mode_config(self, monkeypatch):
-        """ATRUST_CDP_BRIDGE_MODE 应被正确读取。"""
-        monkeypatch.setenv("ATRUST_CDP_BRIDGE_MODE", "docker_exec")
-        monkeypatch.setenv("ATRUST_USERNAME", "u")
-        monkeypatch.setenv("ATRUST_PASSWORD", "p")
-
-        from scripts.atrust_login import _load_settings
-        s = _load_settings()
-        assert s.atrust_cdp_bridge_mode == "docker_exec"
+    monkeypatch.setenv("VPN_STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(vpn, "install_core", lambda: tmp_path / "core")
+    monkeypatch.setattr(vpn.socket, "socket", MagicMock())
+    opener = Mock()
+    opener.open.return_value = io.BytesIO(b'{"code":0}')
+    monkeypatch.setattr(vpn, "build_opener", lambda *a: opener)
+    process = Mock()
+    process.stdout = io.StringIO(
+        "Visit https://vpn.seu.edu.cn/auth to login\nHTTP server listening\n"
+    )
+    process.poll.return_value = None
+    monkeypatch.setattr(vpn.subprocess, "Popen", lambda *a, **kw: process)
+    monkeypatch.setattr(vpn, "login_cas", lambda *a: CALLBACK)
+    monkeypatch.setattr(
+        "seu_monitor.core.healthcheck.check_vpn_verbose", lambda *a: (True, "OK")
+    )
+    assert vpn.run_service() == 1  # EOF is a failed core, supervised by systemd.
+    process.stdin.write.assert_called_once_with(CALLBACK + "\n")
+    process.terminate.assert_called_once()
+    output = capsys.readouterr().out
+    assert "one-use" not in output
+    assert "VPN 已连接" in output

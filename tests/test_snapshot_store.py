@@ -46,10 +46,9 @@ class TestSnapshotStore:
             # 目录: snapshots/jwc/zxdt/2024/03/20240315_000000_abc12345678/
             assert path.exists()
             assert path.is_dir()
-            assert "jwc" in str(path)
-            assert "zxdt" in str(path)
-            assert "2024" in str(path)
-            assert "03" in str(path)
+            assert path.parent.name == "最新动态"
+            assert path.parent.parent.name == "教务处"
+            assert path.name.startswith("测试公告--")
 
     def test_save_creates_required_files(self):
         """应生成 raw.html、text.md、meta.json。"""

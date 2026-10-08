@@ -36,7 +36,7 @@ class WpNewsAdapter(SiteAdapter):
     def __init__(self, site_config: dict, session=None):
         """
         Args:
-            site_config: 来自 sites.yaml 的站点配置 dict。
+            site_config: 内置教务处来源配置 dict。
             session: 可选的 requests.Session，不传则自动创建。
         """
         self.config = site_config

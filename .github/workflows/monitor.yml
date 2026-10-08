@@ -25,7 +25,7 @@ jobs:
 
       - name: 安装依赖
         run: |
-          pip install requests beautifulsoup4 pyyaml
+          pip install -e .
 
       - name: 运行监控脚本
         env:

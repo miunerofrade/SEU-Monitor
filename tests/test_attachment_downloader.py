@@ -19,6 +19,7 @@ from seu_monitor.core.models import AttachmentCandidate
 # 工具函数
 # ---------------------------------------------------------------------------
 
+
 class TestSanitizeFilename:
     def test_removes_invalid_chars(self):
         assert "/" not in _sanitize_filename("a/b/c.pdf")
@@ -78,6 +79,7 @@ class TestResolveFilename:
 # 下载逻辑
 # ---------------------------------------------------------------------------
 
+
 class TestDownloadAttachment:
     def _make_mock_get(self, content=b"content", headers=None):
         """创建 mock 的 session.get 方法。"""
@@ -104,6 +106,7 @@ class TestDownloadAttachment:
         )
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,22 +117,26 @@ class TestDownloadAttachment:
             )
             result = download_attachment(session, candidate, target, 1)
 
-            assert result.filename == "test.pdf"
+            assert result.filename.startswith("test--") and result.filename.endswith(
+                ".pdf"
+            )
             assert result.sha256 == expected_sha256
             assert result.size == len(content)
             assert result.content_type == "application/pdf"
             assert result.error is None
-            assert (target / "test.pdf").exists()
-            assert (target / "test.pdf").read_bytes() == content
+            assert (target / result.filename).exists()
+            assert (target / result.filename).read_bytes() == content
 
     def test_download_failure_records_error(self, monkeypatch):
         """下载失败应记录 error 且不崩溃。"""
+
         def mock_get(self, url, **kwargs):
             raise Exception("Connection refused")
 
         monkeypatch.setattr("requests.Session.get", mock_get)
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,6 +167,7 @@ class TestDownloadAttachment:
         monkeypatch.setattr("requests.Session.get", mock_get)
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -172,7 +180,7 @@ class TestDownloadAttachment:
             assert result.error is not None
             assert "跳过" in result.error
 
-    def test_pdf_url_with_html_content_type_not_skipped(self, monkeypatch):
+    def test_pdf_url_with_html_content_type_rejected(self, monkeypatch):
         """URL 是 .pdf 后缀即使 Content-Type 是 text/html 也要下载。"""
         content = b"%PDF-1.4 fake"
 
@@ -189,6 +197,7 @@ class TestDownloadAttachment:
         monkeypatch.setattr("requests.Session.get", mock_get)
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,8 +207,8 @@ class TestDownloadAttachment:
                 text="PDF文件",
             )
             result = download_attachment(session, candidate, target, 1)
-            assert result.error is None
-            assert result.filename == "file.pdf"
+            assert result.error is not None
+            assert not list(target.iterdir())
 
 
 class TestDownloadAttachments:
@@ -211,7 +220,10 @@ class TestDownloadAttachments:
         def mock_get(self, url, **kwargs):
             nonlocal call_count
             resp = Mock(status_code=200)
-            resp.headers = {"Content-Type": "application/pdf", "Content-Disposition": ""}
+            resp.headers = {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": "",
+            }
             resp.iter_content.return_value = [contents[call_count]]
             resp.raise_for_status = lambda: None
             call_count += 1
@@ -220,6 +232,7 @@ class TestDownloadAttachments:
         monkeypatch.setattr("requests.Session.get", mock_get)
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,7 +256,10 @@ class TestDownloadAttachments:
             if call_count == 1:
                 raise Exception("网络错误")
             resp = Mock(status_code=200)
-            resp.headers = {"Content-Type": "application/pdf", "Content-Disposition": ""}
+            resp.headers = {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": "",
+            }
             resp.iter_content.return_value = [b"ok"]
             resp.raise_for_status = lambda: None
             return resp
@@ -251,6 +267,7 @@ class TestDownloadAttachments:
         monkeypatch.setattr("requests.Session.get", mock_get)
 
         from seu_monitor.core.http import new_session
+
         session = new_session()
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -263,7 +280,9 @@ class TestDownloadAttachments:
             assert len(results) == 2
             assert results[0].error is not None
             assert results[1].error is None
-            assert results[1].filename == "good.pdf"
+            assert results[1].filename.startswith("good--") and results[
+                1
+            ].filename.endswith(".pdf")
 
     def test_empty_candidates(self):
         """空候选列表应返回空。"""

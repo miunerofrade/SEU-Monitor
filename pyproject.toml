@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seu-monitor"
+version = "0.2.0"
+description = "东南大学教务处通知监控命令行"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28", "beautifulsoup4>=4.11", "cryptography>=42"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+monitor = "seu_monitor.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["seu_monitor*"]
+
+[tool.setuptools.package-data]
+"seu_monitor.core" = ["licenses/*.txt"]
