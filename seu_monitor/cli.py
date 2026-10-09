@@ -1,4 +1,4 @@
-"""monitor / stop / ps / doctor / vpn."""
+"""monitor / stop / ps / doctor / vpn / log."""
 
 from __future__ import annotations
 import argparse
@@ -23,6 +23,10 @@ def parser():
     commands.add_parser("stop", help="停止监控和 VPN，并取消开机启动")
     commands.add_parser("ps", help="显示 systemd 服务状态")
     commands.add_parser("doctor", help="检查配置、教务处和 VPN")
+    log = commands.add_parser("log", help="查看监控和 VPN 日志")
+    log.add_argument("target", nargs="?", choices=["monitor", "vpn"], help="只看指定服务")
+    log.add_argument("-f", "--follow", action="store_true", help="实时跟踪日志，Ctrl+C 退出")
+    log.add_argument("-n", "--lines", type=int, default=50, help="最近日志条数，默认 50")
     vpn = commands.add_parser("vpn", help="配置或启动 zju-connect VPN")
     vpn.add_argument("--account", help="校园账号")
     vpn.add_argument("--password", dest="password", help="密码（省略时交互输入）")
@@ -93,6 +97,8 @@ def worker(name, directory, values):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command == "log":
+            return systemd.logs(args.target, args.lines, args.follow)
         directory = config.data_directory(args.data_dir)
         values = config.load(directory)
         if args.worker:

@@ -102,3 +102,20 @@ def status():
         print(f"{name}: {result.stdout.strip() or '未安装'}")
     result = command("list-timers", TIMER, "--no-pager", check=False)
     print(result.stdout.strip())
+
+
+def logs(target=None, lines=50, follow=False):
+    if lines < 1:
+        raise ValueError("日志条数必须大于 0")
+    if not shutil.which("journalctl"):
+        raise RuntimeError("查看日志需要 Linux journalctl")
+    arguments = ["journalctl", "--user", "--no-pager", "-n", str(lines)]
+    for unit in ([UNITS[target]] if target else UNITS.values()):
+        arguments.extend(["-u", unit])
+    if follow:
+        arguments.append("-f")
+    try:
+        # Inherit terminal streams so follow mode displays output immediately.
+        return subprocess.run(arguments).returncode
+    except KeyboardInterrupt:
+        return 0

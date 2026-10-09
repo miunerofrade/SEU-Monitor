@@ -18,13 +18,14 @@ pip install -e .
 
 激活虚拟环境后可以直接使用 `monitor`。也可执行 `.venv/bin/monitor`，或 `python monitor.py`。
 
-## 四个基本命令
+## 基本命令
 
 ```bash
 monitor           # 启用定时器，启动后扫描一次，此后默认间隔一小时
 monitor stop      # 停止监控和 VPN，同时取消开机启动
 monitor ps        # 查看定时器、下次运行时间和 VPN 状态
 monitor doctor    # 检查配置、教务处连接；配置 VPN 后也检查校园通道
+monitor log       # 查看监控和 VPN 最近 50 条日志
 ```
 
 `monitor` 自动生成 `~/.config/systemd/user/` 下的 `seu-monitor.service`、`seu-monitor.timer` 和 `seu-vpn.service`。通知扫描是一次性服务，由 timer 定时启动，扫描结束后退出；VPN 是常驻服务。重复启动复用同一套服务，从旧版本升级时自动停用原来的常驻监控服务。
@@ -135,6 +136,16 @@ monitor --data-dir /绝对路径/monitor-data ps
 后续命令必须使用同一个目录；也可设置 `MONITOR_DATA_DIR`。同一用户只管理一套监控服务，不支持多个数据目录同时启动。
 
 ## 日志和服务排查
+
+```bash
+monitor log             # 监控和 VPN 最近 50 条日志
+monitor log vpn         # 只看 VPN
+monitor log monitor     # 只看通知抓取
+monitor log -n 100      # 最近 100 条
+monitor log vpn -f      # 实时跟踪 VPN 日志，Ctrl+C 退出
+```
+
+进一步检查 systemd 状态：
 
 ```bash
 journalctl --user -u seu-monitor -f

@@ -145,3 +145,37 @@ def test_timer_tracks_config_and_scan_service_is_not_persistent(tmp_path, monkey
     config.save(data, {**config.DEFAULTS, 'interval':1800})
     systemd.install(data)
     assert 'OnUnitInactiveSec=1800s' in (units/'seu-monitor.timer').read_text()
+
+
+@pytest.mark.parametrize('arguments,target,lines,follow', [
+    (['log'],None,50,False),
+    (['log','vpn','-f','-n','100'],'vpn',100,True),
+    (['log','monitor'],'monitor',50,False),
+])
+def test_log_dispatch_does_not_require_config(monkeypatch, arguments, target, lines, follow):
+    logs = Mock(return_value=0)
+    monkeypatch.setattr(systemd, 'logs', logs)
+    monkeypatch.setattr(config, 'data_directory', Mock(side_effect=AssertionError('must not load config')))
+    assert cli.main(arguments) == 0
+    logs.assert_called_once_with(target,lines,follow)
+
+
+def test_logs_follow_streams_selected_service_and_handles_interrupt(monkeypatch):
+    monkeypatch.setattr(systemd.shutil, 'which', lambda command:'/usr/bin/'+command)
+    run = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr(systemd.subprocess, 'run', run)
+    assert systemd.logs('vpn',100,True) == 0
+    run.assert_called_once_with(['journalctl','--user','--no-pager','-n','100','-u','seu-vpn.service','-f'])
+
+
+def test_logs_default_includes_both_services_and_preserves_exit_code(monkeypatch):
+    monkeypatch.setattr(systemd.shutil,'which',lambda command:'/usr/bin/'+command)
+    run = Mock(return_value=subprocess.CompletedProcess([],1))
+    monkeypatch.setattr(systemd.subprocess,'run',run)
+    assert systemd.logs() == 1
+    run.assert_called_once_with(['journalctl','--user','--no-pager','-n','50','-u','seu-monitor.service','-u','seu-vpn.service'])
+
+
+def test_logs_rejects_invalid_count():
+    with pytest.raises(ValueError, match='大于 0'):
+        systemd.logs(lines=0)
