@@ -158,8 +158,8 @@ def test_service_requires_three_consecutive_probe_failures(tmp_path, monkeypatch
     clock = [0]
     monkeypatch.setattr(vpn.time, 'monotonic', lambda: clock[0])
     def output(timeout):
-        clock[0] += 60
-        if clock[0] == 60: return 'HTTP server listening'
+        clock[0] += 900
+        if clock[0] == 900: return 'HTTP server listening'
         raise vpn.queue.Empty()
     queued = Mock()
     queued.get.side_effect = output

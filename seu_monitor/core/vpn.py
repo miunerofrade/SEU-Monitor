@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 RELEASE = "v1.3.1"
+PROBE_INTERVAL = 15 * 60
 SOURCE_COMMIT = "5d7f5b11fcf231f72a0ec0d888bf0f2eadcce1da"
 SOURCE_URL = f"https://github.com/Mythologyli/zju-connect/tree/{SOURCE_COMMIT}"
 SERVER = "https://vpn.seu.edu.cn"
@@ -282,7 +283,7 @@ def run_service(port: int = 8888) -> int:
                     print(f"VPN 数据通道检查失败（{probe_failures}/3），连续失败 3 次才暂停", flush=True)
                     if probe_failures >= 3:
                         raise VPNError("VPN 数据通道连续 3 次检查失败")
-                next_probe = time.monotonic() + 60
+                next_probe = time.monotonic() + PROBE_INTERVAL
             try:
                 line = lines.get(timeout=0.25)
             except queue.Empty:
@@ -311,7 +312,7 @@ def run_service(port: int = 8888) -> int:
                     raise VPNError("VPN 认证完成但数据通道检查失败")
                 connected = True
                 probe_failures = 0
-                next_probe = time.monotonic() + 60
+                next_probe = time.monotonic() + PROBE_INTERVAL
                 print(f"VPN 已连接，HTTP 代理：{proxy}", flush=True)
             elif "Please enter" in line and "callback" not in line.lower():
                 raise ManualAuthenticationRequired("VPN 要求额外验证，请使用交互登录")
