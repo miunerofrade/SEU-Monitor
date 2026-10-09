@@ -61,6 +61,7 @@ class TestCheckVpn:
 class TestCheckVpnVerbose:
     def test_returns_ok_message(self, monkeypatch):
         def mock_get(self, url, **kwargs):
+            assert kwargs["verify"] is True
             resp = Mock(status_code=200)
             return resp
 
@@ -68,6 +69,16 @@ class TestCheckVpnVerbose:
         ok, msg = check_vpn_verbose(check_url="https://cvs.seu.edu.cn")
         assert ok is True
         assert "OK" in msg
+
+    def test_certificate_failure_is_not_ignored(self, monkeypatch):
+        def mock_get(self, url, **kwargs):
+            assert kwargs["verify"] is True
+            raise requests.exceptions.SSLError("certificate verify failed")
+
+        monkeypatch.setattr("requests.Session.get", mock_get)
+        ok, msg = check_vpn_verbose(check_url="https://cvs.seu.edu.cn")
+        assert ok is False
+        assert "SSLError" in msg
 
     def test_returns_fail_message(self, monkeypatch):
         def mock_get(self, url, **kwargs):

@@ -57,7 +57,7 @@ def check_vpn_verbose(
         session.proxies.update(proxies)
 
     try:
-        resp = session.get(check_url, timeout=timeout, verify=False)
+        resp = session.get(check_url, timeout=timeout, verify=True)
         ok = resp.status_code < 500
         if ok:
             msg = f"OK - status={resp.status_code}"
