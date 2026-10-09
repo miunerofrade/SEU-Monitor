@@ -137,3 +137,38 @@ def test_service_consumes_callback_and_cleans_up_without_logging_ticket(
     output = capsys.readouterr().out
     assert "one-use" not in output
     assert "VPN 已连接" in output
+
+
+@pytest.mark.parametrize('checks', [
+    [True, False, False, False],
+    [True, False, False, True, False, False, False],
+])
+def test_service_requires_three_consecutive_probe_failures(tmp_path, monkeypatch, capsys, checks):
+    from unittest.mock import MagicMock
+    monkeypatch.setenv('VPN_STATE_DIR', str(tmp_path))
+    monkeypatch.setattr(vpn, 'install_core', lambda: tmp_path/'core')
+    monkeypatch.setattr(vpn.socket, 'socket', MagicMock())
+    opener = Mock()
+    opener.open.return_value = io.BytesIO(b'{"code":0}')
+    monkeypatch.setattr(vpn, 'build_opener', lambda *a: opener)
+    process = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(vpn.subprocess, 'Popen', lambda *a, **kw: process)
+    monkeypatch.setattr(vpn.threading, 'Thread', MagicMock())
+    clock = [0]
+    monkeypatch.setattr(vpn.time, 'monotonic', lambda: clock[0])
+    def output(timeout):
+        clock[0] += 60
+        if clock[0] == 60: return 'HTTP server listening'
+        raise vpn.queue.Empty()
+    queued = Mock()
+    queued.get.side_effect = output
+    monkeypatch.setattr(vpn.queue, 'Queue', lambda: queued)
+    probe = Mock(side_effect=[(ok, 'probe') for ok in checks])
+    monkeypatch.setattr('seu_monitor.core.healthcheck.check_vpn_verbose', probe)
+    assert vpn.run_service() == 1
+    assert probe.call_count == len(checks)
+    process.terminate.assert_called_once()
+    log = capsys.readouterr().out
+    assert '连续 3 次检查失败' in log
+    if len(checks) > 4: assert '检查恢复正常' in log

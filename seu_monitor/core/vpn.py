@@ -266,14 +266,22 @@ def run_service(port: int = 8888) -> int:
         )
         connected = False
         next_probe = 0
+        probe_failures = 0
         proxy = f"http://127.0.0.1:{port}"
         check_url = os.environ.get("VPN_CHECK_URL") or "https://cvs.seu.edu.cn"
         while not stopped.is_set():
             if not connected and time.monotonic() > deadline:
                 raise VPNError("VPN 连接超时")
             if connected and time.monotonic() >= next_probe:
-                if not check_vpn_verbose(check_url, proxy, 10)[0]:
-                    raise VPNError("VPN 数据通道不可用")
+                if check_vpn_verbose(check_url, proxy, 10)[0]:
+                    if probe_failures:
+                        print("VPN 数据通道检查恢复正常", flush=True)
+                    probe_failures = 0
+                else:
+                    probe_failures += 1
+                    print(f"VPN 数据通道检查失败（{probe_failures}/3），连续失败 3 次才暂停", flush=True)
+                    if probe_failures >= 3:
+                        raise VPNError("VPN 数据通道连续 3 次检查失败")
                 next_probe = time.monotonic() + 60
             try:
                 line = lines.get(timeout=0.25)
@@ -302,6 +310,7 @@ def run_service(port: int = 8888) -> int:
                 if not ready:
                     raise VPNError("VPN 认证完成但数据通道检查失败")
                 connected = True
+                probe_failures = 0
                 next_probe = time.monotonic() + 60
                 print(f"VPN 已连接，HTTP 代理：{proxy}", flush=True)
             elif "Please enter" in line and "callback" not in line.lower():
