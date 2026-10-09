@@ -73,6 +73,10 @@ def check_vpn_verbose(
         msg = f"FAILED - ProxyError ({e})"
         logger.warning("VPN 健康检查失败: %s (%s)", msg, check_url)
         return False, msg
+    except requests.exceptions.SSLError as e:
+        msg = f"FAILED - SSLError ({e})"
+        logger.warning("VPN 证书校验失败: %s (%s)", msg, check_url)
+        return False, msg
     except requests.exceptions.ConnectionError as e:
         msg = f"FAILED - ConnectionError ({e})"
         logger.warning("VPN 健康检查失败: %s (%s)", msg, check_url)
