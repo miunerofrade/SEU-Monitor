@@ -299,3 +299,38 @@ class TestDownloadAttachments:
         ]
         results = download_attachments(candidates, Path("/tmp"))
         assert len(results) == 0
+
+
+def test_reuse_and_unique_downloads_exclude_removed_and_invalid_links(tmp_path):
+    from seu_monitor.core.models import SavedAttachment
+    saved = SavedAttachment('https://example.com/a.pdf', 'a.pdf', 'hash')
+    stale = SavedAttachment('https://example.com/removed.pdf', 'removed.pdf', 'hash')
+    session = Mock()
+    candidates = [
+        AttachmentCandidate(saved.url, '附件'),
+        AttachmentCandidate(saved.url, '下载'),
+        AttachmentCandidate('https://example.com/list.htm', '下载专区'),
+    ]
+    results = download_attachments(candidates, tmp_path, session,
+                                   previous={saved.url: saved, stale.url: stale})
+    assert results == [saved]
+    session.get.assert_not_called()
+    session.close.assert_not_called()
+
+
+def test_downloader_closes_only_owned_session(tmp_path, monkeypatch):
+    session = Mock()
+    monkeypatch.setattr('seu_monitor.core.attachments.new_session', lambda: session)
+    assert download_attachments([AttachmentCandidate('https://example.com/list.htm', '下载专区')],
+                                tmp_path) == []
+    session.close.assert_called_once()
+
+
+def test_xhtml_is_rejected_as_a_file(tmp_path):
+    session = Mock()
+    session.get.return_value.headers = {'Content-Type': 'application/xhtml+xml; charset=utf-8'}
+    result = download_attachment(session, AttachmentCandidate('https://example.com/a.pdf', '附件'),
+                                 tmp_path, 1)
+    assert result.error
+    assert list(tmp_path.iterdir()) == []
+    session.get.return_value.close.assert_called_once()

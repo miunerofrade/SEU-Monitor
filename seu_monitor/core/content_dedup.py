@@ -10,6 +10,7 @@ import unicodedata
 from pathlib import Path
 
 from .state import StateStore
+from .attachment_rules import is_image_file
 from seu_monitor.sources.jwc import COLUMNS
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,7 @@ def signature(metadata: dict, text: str):
     for item in metadata.get("attachments", []):
         if item.get("error") or not item.get("sha256"):
             raise ValueError("附件不完整，不能作为去重依据")
-        is_image = (item.get("content_type") or "").startswith("image/") or Path(
-            item.get("filename", "")
-        ).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+        is_image = is_image_file(item.get("filename", ""), item.get("content_type") or "")
         (images if is_image else files).add(item["sha256"])
     body = normalized(text)
     if not body and not files and not images:

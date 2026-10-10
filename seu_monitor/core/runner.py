@@ -54,9 +54,9 @@ def run_all(settings: Settings | None = None) -> int:
                     directory = snapshot._snapshot_dir(notice)
                     # A saved attachment can be reused when only delivery needs retry.
                     previous = snapshot.attachment_records(notice)
-                    pending = [a for a in detail.attachments if a.url not in previous]
-                    attachments = list(previous.values()) + download_attachments(
-                        pending, directory / "attachments", session=session
+                    attachments = download_attachments(
+                        detail.attachments, directory / "attachments", session=session,
+                        previous=previous,
                     )
                     snapshot.save(notice, detail, attachments)
                     if any(a.error for a in attachments):

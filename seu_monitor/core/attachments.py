@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import re
+from urllib.parse import unquote, urlsplit
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,26 +17,9 @@ import requests
 
 from seu_monitor.core.http import new_session
 from seu_monitor.core.models import AttachmentCandidate, SavedAttachment
-from .attachment_rules import ATTACHMENT_EXTENSIONS, is_attachment_candidate
+from .attachment_rules import file_suffix, is_attachment_candidate, is_html_response
 
 logger = logging.getLogger(__name__)
-
-# 常见附件扩展名（小写）
-_ATTACHMENT_EXTENSIONS = ATTACHMENT_EXTENSIONS
-
-# 可接受的 Content-Type 前缀
-_ACCEPTABLE_TYPES = {
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats",
-    "application/vnd.ms-",
-    "application/vnd.ms-excel",
-    "application/zip",
-    "application/x-rar",
-    "application/x-7z",
-    "image/",
-    "text/plain",
-}
 
 _is_attachment_candidate = is_attachment_candidate
 
@@ -74,7 +58,7 @@ def _resolve_filename(
             return _sanitize_filename(fname)
 
     # 策略 2：URL path
-    url_path = candidate.url.split("?")[0]
+    url_path = unquote(urlsplit(candidate.url).path)
     url_filename = url_path.rstrip("/").split("/")[-1]
     if url_filename and "." in url_filename:
         return _sanitize_filename(url_filename)
@@ -84,20 +68,13 @@ def _resolve_filename(
         return _sanitize_filename(candidate.text)
 
     # 策略 4：fallback
-    ext = ""
-    for known_ext in _ATTACHMENT_EXTENSIONS:
-        if candidate.url.lower().endswith(known_ext):
-            ext = known_ext
-            break
+    ext = file_suffix(candidate.url)
     return f"attachment_{index}{ext}"
 
 
 def _is_html_content(response: requests.Response) -> bool:
     """判断响应是否明显是 HTML。"""
-    ct = (response.headers.get("Content-Type", "") or "").lower()
-    if "text/html" in ct:
-        return True
-    return False
+    return is_html_response(response.headers.get("Content-Type", "") or "")
 
 
 def download_attachment(
@@ -165,6 +142,7 @@ def download_attachments(
     candidates: List[AttachmentCandidate],
     target_dir: Path,
     session: Optional[requests.Session] = None,
+    previous: Optional[dict[str, SavedAttachment]] = None,
 ) -> List[SavedAttachment]:
     """下载所有候选附件，返回结果列表。
 
@@ -174,14 +152,21 @@ def download_attachments(
         return []
 
     target_dir.mkdir(parents=True, exist_ok=True)
+    owned_session = session is None
     session = session or new_session()
-
-    results: List[SavedAttachment] = []
-    for i, candidate in enumerate(candidates):
-        if not _is_attachment_candidate(candidate):
-            logger.debug("跳过非附件链接: %s", candidate.url)
-            continue
-        result = download_attachment(session, candidate, target_dir, i + 1)
-        results.append(result)
-
-    return results
+    previous = previous or {}
+    try:
+        results: List[SavedAttachment] = []
+        unique = {candidate.url: candidate for candidate in candidates}
+        for i, candidate in enumerate(unique.values()):
+            if not is_attachment_candidate(candidate):
+                logger.debug("跳过非附件链接: %s", candidate.url)
+                continue
+            result = previous.get(candidate.url)
+            if result is None or result.error:
+                result = download_attachment(session, candidate, target_dir, i + 1)
+            results.append(result)
+        return results
+    finally:
+        if owned_session:
+            session.close()

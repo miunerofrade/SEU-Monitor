@@ -67,10 +67,12 @@ def test_failed_delivery_reuses_verified_attachment(tmp_path, monkeypatch):
     count = []
 
     def download(items, target, **kwargs):
+        previous = kwargs.get("previous", {})
+        items = [item for item in items if item.url not in previous]
         count.append(len(items))
         target.mkdir(parents=True, exist_ok=True)
         if not items:
-            return []
+            return list(previous.values())
         (target / "a.pdf").write_bytes(b"pdf")
         return [
             SavedAttachment(

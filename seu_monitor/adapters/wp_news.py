@@ -8,14 +8,14 @@ from __future__ import annotations
 import logging
 import re
 from typing import List, Optional
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
 from seu_monitor.adapters.base import SiteAdapter
 from seu_monitor.core.http import do_get, new_session
-from seu_monitor.core.models import AttachmentCandidate, Detail, Notice
-from seu_monitor.core.attachment_rules import is_attachment_candidate
+from seu_monitor.core.models import Detail, Notice
+from seu_monitor.core.body_assets import extract_body_assets
 
 logger = logging.getLogger(__name__)
 
@@ -183,65 +183,6 @@ class WpNewsAdapter(SiteAdapter):
         text = content.get_text(separator="\n", strip=True)
         text = re.sub(r"\n{3,}", "\n\n", text)
 
-        # ---- 附件候选提取 ----
-        attachments: List[AttachmentCandidate] = []
-
-        # 从 <a> 标签提取
-        for a_tag in content.find_all("a", href=True):
-            href = a_tag["href"]
-            link_text = a_tag.get_text().strip()
-            full_url = urljoin(base_url, href) if base_url else href
-            candidate = AttachmentCandidate(
-                url=full_url, text=link_text or href.split("/")[-1], source="detail_link"
-            )
-            if is_attachment_candidate(candidate):
-                attachments.append(candidate)
-
-        # 从 wp_pdf_player 元素提取 PDF 附件
-        # jwc 站群有两种写法：
-        #   <iframe class="wp_pdf_player" src="viewer.html?file=...">
-        #   <span  class="wp_pdf_player" pdfsrc="...">
-        from urllib.parse import parse_qs, urlparse
-
-        # 写法 1：<span class="wp_pdf_player" pdfsrc="...">
-        for el in content.find_all(class_="wp_pdf_player"):
-            pdfsrc = el.get("pdfsrc") or el.get("file") or ""
-            if pdfsrc:
-                pdf_url = urljoin(base_url, pdfsrc)
-                fname = pdfsrc.split("/")[-1] or "附件.pdf"
-                attachments.append(AttachmentCandidate(
-                    url=pdf_url, text=fname, source="pdf_player",
-                ))
-                continue
-
-            # 写法 2：src 里带 ?file= 参数
-            src = el.get("src", "")
-            if src:
-                qs = parse_qs(urlparse(src).query)
-                pdf_path = qs.get("file", [None])[0]
-                if pdf_path:
-                    pdf_url = urljoin(base_url, pdf_path)
-                    fname = pdf_path.split("/")[-1] or "附件.pdf"
-                    attachments.append(AttachmentCandidate(
-                        url=pdf_url, text=fname, source="pdf_player",
-                    ))
-
-        # 仅提取正文中的图片，导航、页脚等图片不归档。
-        markdown_body = BeautifulSoup(html_content, "html.parser")
-        for image in markdown_body.find_all("img"):
-            src = image.get("data-src") or image.get("src") or ""
-            image_url = urljoin(base_url, src)
-            if not src or urlsplit(image_url).scheme not in ("http", "https"):
-                image.decompose()
-                continue
-            alt = (image.get("alt") or "正文图片").replace("\n", " ")
-            alt = alt.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
-            attachments.append(AttachmentCandidate(
-                url=image_url, text=alt, source="inline_image",
-            ))
-            image.replace_with(f"\n![{alt}](<{image_url}>)\n")
-        markdown = markdown_body.get_text(separator="\n", strip=True)
-        # 同一个文件即使同时作为图片和附件出现，也只下载一次。
-        unique = {candidate.url: candidate for candidate in attachments}
+        attachments, markdown = extract_body_assets(content, base_url)
         return Detail(html=html_content, text=text,
-                      attachments=list(unique.values()), markdown=markdown)
+                      attachments=attachments, markdown=markdown)

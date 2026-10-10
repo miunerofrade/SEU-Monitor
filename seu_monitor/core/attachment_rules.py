@@ -9,6 +9,20 @@ ATTACHMENT_EXTENSIONS = {
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
     '.zip', '.rar', '.7z', '.txt', '.jpg', '.jpeg', '.png',
 }
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'}
+ATTACHMENT_EXTENSIONS |= IMAGE_EXTENSIONS
+
+
+def file_suffix(value: str) -> str:
+    return PurePosixPath(unquote(urlsplit(value).path)).suffix.lower()
+
+
+def is_image_file(filename: str, content_type: str = '') -> bool:
+    return content_type.lower().startswith('image/') or file_suffix(filename) in IMAGE_EXTENSIONS
+
+
+def is_html_response(content_type: str) -> bool:
+    return content_type.lower().split(';')[0].strip() in {'text/html', 'application/xhtml+xml'}
 
 
 def is_attachment_candidate(candidate: AttachmentCandidate) -> bool:
@@ -18,7 +32,7 @@ def is_attachment_candidate(candidate: AttachmentCandidate) -> bool:
     if candidate.source in {'inline_image', 'pdf_player'}:
         return True
     path = unquote(url.path).lower()
-    suffix = PurePosixPath(path).suffix
+    suffix = file_suffix(candidate.url)
     if suffix in ATTACHMENT_EXTENSIONS:
         return True
     # 栏目和普通页面不能仅因标题中有“下载”而变成附件。

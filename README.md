@@ -178,6 +178,9 @@ seu_monitor/
     ├── runner.py                # 单次扫描管线
     ├── snapshot.py              # 通知归档
     ├── attachments.py           # 附件下载
+    ├── attachment_rules.py      # 统一 URL、文件类型及候选判断
+    ├── body_assets.py            # 正文附件 / PDF / 图片提取与引用
+    ├── content_dedup.py          # 跨文章 ID 的内容去重
     ├── vpn.py                   # 原生核心与代理生命周期
     ├── cas.py                   # 纯 HTTP CAS 密码/短信认证
     ├── state.py                 # 去重状态
@@ -186,6 +189,8 @@ seu_monitor/
 ```
 
 `edulog.py` 保留为旧定时任务的一次扫描入口，共用抓取实现，不启动 systemd 服务。正常本地部署使用 `monitor`。
+
+附件处理使用同一条管线：站点适配器定位正文，`body_assets` 提取文件链接、PDF 播放器和图片，`attachment_rules` 统一判断地址和文件类型，`attachments` 负责去重、复用已校验文件、下载与响应检查。归档内容去重也共用文件类型规则。增加站点时可复用这条管线，无需在解析器和下载器里各写一套规则；网络失败及真实附件返回 HTML 仍会保留重试。
 
 ## 开发
 
