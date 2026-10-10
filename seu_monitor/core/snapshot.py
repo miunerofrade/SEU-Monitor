@@ -6,12 +6,15 @@ import hashlib
 import json
 import logging
 import re
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
 from seu_monitor.core.models import Detail, Notice, SavedAttachment
+from .column_archive import ColumnArchive
 
 logger = logging.getLogger(__name__)
 
@@ -35,24 +38,63 @@ class SnapshotStore:
 
     def __init__(self, snapshot_root: str = "snapshots"):
         self.snapshot_root = snapshot_root
+        self._workspace = {}
+
+    def pack_legacy(self):
+        root = Path(self.snapshot_root) / "教务处"
+        count = 0
+        if root.exists():
+            for column in sorted(root.iterdir()):
+                if column.is_dir():
+                    count += ColumnArchive(column).migrate()
+        return count
+
+    def reference(self, notice: Notice) -> Path:
+        from seu_monitor.sources.jwc import COLUMNS
+        column = Path(self.snapshot_root) / "教务处" / _sanitize(COLUMNS.get(notice.column_id, notice.column_id))
+        digest = hashlib.sha256(notice.url.encode()).hexdigest()[:16]
+        existing = sorted(column.glob(f"*--{digest}")) if column.exists() else []
+        if not existing:
+            existing = [column / name for name in ColumnArchive(column).records() if name.endswith(f"--{digest}")]
+        return existing[0] if existing else column / f"{_sanitize(notice.title)[:60]}--{digest}"
+
+    @contextmanager
+    def staging(self, notice: Notice, candidates):
+        reference = self.reference(notice)
+        # 临时文件不使用通知目录，异常退出不会覆盖归档。
+        with tempfile.TemporaryDirectory(prefix="seu-monitor-archive-") as temporary:
+            directory = Path(temporary)
+            self._workspace[notice.url] = directory
+            try:
+                previous = ColumnArchive(reference.parent).restore(
+                    reference.name, directory, {candidate.url for candidate in candidates}
+                )
+                yield directory, previous
+            finally:
+                self._workspace.pop(notice.url, None)
+
+    def commit(self, notice: Notice):
+        reference = self.reference(notice)
+        ColumnArchive(reference.parent).update({reference.name: self._snapshot_dir(notice)})
+        logger.info("压缩归档已保存：%s#%s", reference.parent.with_suffix('.zip'), reference.name)
+
+    def metadata(self, notice: Notice):
+        reference = self.reference(notice)
+        if notice.url in self._workspace:
+            return json.loads((self._snapshot_dir(notice) / 'meta.json').read_text())
+        return ColumnArchive(reference.parent).records()[reference.name]['metadata']
+
+    def packed_records(self):
+        for path in (Path(self.snapshot_root) / "教务处").glob('*.zip'):
+            for prefix, record in ColumnArchive(path.with_suffix('')).records().items():
+                yield record, path.with_suffix('') / prefix
 
     # ---- 路径计算 ----
 
     def _snapshot_dir(self, notice: Notice) -> Path:
-        from seu_monitor.sources.jwc import COLUMNS
-
-        digest = hashlib.sha256(notice.url.encode()).hexdigest()[:16]
-        column = (
-            Path(self.snapshot_root)
-            / "教务处"
-            / _sanitize(COLUMNS.get(notice.column_id, notice.column_id))
-        )
-        existing = sorted(column.glob(f"*--{digest}")) if column.exists() else []
-        return (
-            existing[0]
-            if existing
-            else column / f"{_sanitize(notice.title)[:60]}--{digest}"
-        )
+        if notice.url in self._workspace:
+            return self._workspace[notice.url]
+        return self.reference(notice)
 
     def attachment_records(self, notice: Notice) -> dict[str, SavedAttachment]:
         directory = self._snapshot_dir(notice)
@@ -130,7 +172,8 @@ class SnapshotStore:
             "text_sha256": text_sha256,
             "content_version": 1,
             "content_text": detail.text,
-            "snapshot_path": str(snap_dir),
+            "snapshot_path": (f"{self.reference(notice).parent.with_suffix('.zip')}#{self.reference(notice).name}"
+                              if notice.url in self._workspace else str(snap_dir)),
             "attachments": attachments_info,
         }
         meta_path = snap_dir / "meta.json"

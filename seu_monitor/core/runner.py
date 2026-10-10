@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 import logging
-import json
-import shutil
 from pathlib import Path
 from seu_monitor.adapters.wp_news import WpNewsAdapter
 from seu_monitor.sources.jwc import site_config
@@ -15,6 +13,7 @@ from .settings import Settings
 from .snapshot import SnapshotStore
 from .state import StateStore
 from .content_dedup import ContentIndex
+from .column_archive import archive_lock
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +21,16 @@ logger = logging.getLogger(__name__)
 def run_all(settings: Settings | None = None) -> int:
     settings = settings or Settings.from_env_and_yaml()
     settings.validate()
+    with archive_lock(settings.snapshot_root):
+        return _run_all(settings)
+
+
+def _run_all(settings: Settings) -> int:
     state = StateStore(settings.store_root)
     snapshot = SnapshotStore(settings.snapshot_root)
+    migrated = snapshot.pack_legacy() if not settings.dry_run else 0
+    if migrated:
+        logger.info("已迁移 %d 条通知到栏目 ZIP", migrated)
     content_index = ContentIndex.load(settings.snapshot_root, state)
     notifier = FeishuNotifier(settings.feishu_webhook)
     proxies = settings.resolve_proxies_dict()
@@ -51,43 +58,42 @@ def run_all(settings: Settings | None = None) -> int:
                     if settings.dry_run:
                         logger.info("试运行：[%s] %s", column["name"], notice.title)
                         continue
-                    directory = snapshot._snapshot_dir(notice)
-                    # A saved attachment can be reused when only delivery needs retry.
-                    previous = snapshot.attachment_records(notice)
-                    attachments = download_attachments(
-                        detail.attachments, directory / "attachments", session=session,
-                        previous=previous,
-                    )
-                    snapshot.save(notice, detail, attachments)
-                    if any(a.error for a in attachments):
-                        logger.warning("%s 有附件下载失败，保留重试", notice.title)
-                        continue
-                    metadata = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
-                    try:
-                        duplicate = content_index.find(metadata, detail.text)
-                    except ValueError:
-                        duplicate = None
-                    if duplicate is not None and duplicate != directory:
-                        state.mark_seen(column["name"], notice.id)
-                        seen.add(notice.id)
-                        shutil.rmtree(directory)
-                        logger.info("跳过重复内容：%s；保留归档 %s", notice.title, duplicate)
-                        continue
-                    delivered = not settings.feishu_webhook or notifier.send(
-                        column["name"],
-                        notice.title,
-                        notice.date,
-                        notice.url,
-                        detail.text,
-                    )
-                    if delivered:
-                        state.mark_seen(column["name"], notice.id)
-                        seen.add(notice.id)
+                    with snapshot.staging(notice, detail.attachments) as (directory, previous):
+                        attachments = download_attachments(
+                            detail.attachments, directory / "attachments", session=session,
+                            previous=previous,
+                        )
+                        snapshot.save(notice, detail, attachments)
+                        if any(a.error for a in attachments):
+                            snapshot.commit(notice)
+                            logger.warning("%s 有附件下载失败，保留重试", notice.title)
+                            continue
+                        metadata = snapshot.metadata(notice)
                         try:
-                            content_index.add(metadata, directory, detail.text)
+                            duplicate = content_index.find(metadata, detail.text)
                         except ValueError:
-                            pass  # 空通知仍允许推送，但不作为内容去重依据。
-                        total += 1
+                            duplicate = None
+                        if duplicate is not None and duplicate != snapshot.reference(notice):
+                            state.mark_seen(column["name"], notice.id)
+                            seen.add(notice.id)
+                            logger.info("跳过重复内容：%s；保留归档 %s", notice.title, duplicate)
+                            continue
+                        snapshot.commit(notice)
+                        delivered = not settings.feishu_webhook or notifier.send(
+                            column["name"],
+                            notice.title,
+                            notice.date,
+                            notice.url,
+                            detail.text,
+                        )
+                        if delivered:
+                            state.mark_seen(column["name"], notice.id)
+                            seen.add(notice.id)
+                            try:
+                                content_index.add(metadata, snapshot.reference(notice), detail.text)
+                            except ValueError:
+                                pass  # 空通知仍允许推送，但不作为内容去重依据。
+                            total += 1
                 except Exception:
                     logger.warning("%s 处理失败，下次重试", notice.title, exc_info=True)
     logger.info("扫描完成，归档 %d 条新通知", total)

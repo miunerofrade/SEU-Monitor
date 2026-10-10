@@ -20,10 +20,10 @@ def normalized(value: str) -> str:
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value))
 
 
-def body_text(metadata: dict, directory: Path) -> str:
+def body_text(metadata: dict, directory: Path, archived_text: str | None = None) -> str:
     if "content_text" in metadata:
         return metadata["content_text"]
-    text = (directory / "text.md").read_text(encoding="utf-8")
+    text = archived_text if archived_text is not None else (directory / "text.md").read_text(encoding="utf-8")
     # 旧版快照的正文从抓取时间后的空行开始，不把 URL、抓取时间算入内容。
     parts = re.split(r"抓取时间：[^\n]*\n\n", text, maxsplit=1)
     if len(parts) != 2:
@@ -61,6 +61,7 @@ class ContentIndex:
 
     @classmethod
     def load(cls, root: str, state: StateStore):
+        from .snapshot import SnapshotStore
         index = cls()
         seen = {column: state.load(name) for column, name in COLUMNS.items()}
         records = []
@@ -78,6 +79,14 @@ class ContentIndex:
                 index.add(metadata, directory, body_text(metadata, directory))
             except (OSError, ValueError):
                 logger.warning("归档无法用于内容去重：%s", directory)
+        for record, reference in SnapshotStore(root).packed_records():
+            metadata = record['metadata']
+            if not record['verified'] or metadata.get('notice_id') not in seen.get(metadata.get('column_id'), set()):
+                continue
+            try:
+                index.add(metadata, reference, body_text(metadata, reference, record['text']))
+            except ValueError:
+                logger.warning("压缩归档无法用于内容去重：%s", reference)
         return index
 
     def find(self, metadata: dict, text: str):

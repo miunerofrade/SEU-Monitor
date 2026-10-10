@@ -42,11 +42,12 @@ def test_without_webhook_archives_and_deduplicates(tmp_path, monkeypatch):
     assert runner.run_all(settings) == 1
     assert runner.run_all(settings) == 0
     store = SnapshotStore(settings.snapshot_root)
-    directory = store._snapshot_dir(notice)
-    assert (directory / "text.md").is_file()
+    directory = store.reference(notice)
+    assert store.metadata(notice)["notice_id"] == notice.id
+    assert list(Path(settings.snapshot_root).glob("教务处/*.zip"))
     old = directory
     notice.title = "更新标题"
-    assert store._snapshot_dir(notice) == old
+    assert store.reference(notice) == old
 
 
 def test_snapshot_failure_does_not_deliver_or_mark_seen(tmp_path, monkeypatch):
@@ -187,7 +188,7 @@ def test_changed_article_id_same_content_is_not_sent_or_retained(tmp_path, monke
     detail.text = ' 正\n文 '
     assert runner.run_all(settings) == 0
     assert send.call_count == 1
-    assert len(list(Path(settings.snapshot_root).glob('**/meta.json'))) == 1
+    assert len(list(SnapshotStore(settings.snapshot_root).packed_records())) == 1
     assert 'replacement123456' in runner.StateStore(settings.store_root).load('教务信息')
     assert runner.run_all(settings) == 0
 
