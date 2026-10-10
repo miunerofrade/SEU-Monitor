@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from seu_monitor.adapters.base import SiteAdapter
 from seu_monitor.core.http import do_get, new_session
 from seu_monitor.core.models import AttachmentCandidate, Detail, Notice
+from seu_monitor.core.attachment_rules import is_attachment_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -186,25 +187,15 @@ class WpNewsAdapter(SiteAdapter):
         attachments: List[AttachmentCandidate] = []
 
         # 从 <a> 标签提取
-        for a_tag in soup.find_all("a", href=True):
+        for a_tag in content.find_all("a", href=True):
             href = a_tag["href"]
             link_text = a_tag.get_text().strip()
             full_url = urljoin(base_url, href) if base_url else href
-            url_lower = full_url.lower()
-
-            is_ext_match = any(
-                url_lower.endswith(ext)
-                for ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx",
-                            ".ppt", ".pptx", ".zip", ".rar", ".7z", ".txt"]
+            candidate = AttachmentCandidate(
+                url=full_url, text=link_text or href.split("/")[-1], source="detail_link"
             )
-            is_keyword_match = any(kw in link_text for kw in ["附件", "下载", "PDF", "DOC", "XLS", "PPT", "ZIP"])
-
-            if is_ext_match or is_keyword_match:
-                attachments.append(AttachmentCandidate(
-                    url=full_url,
-                    text=link_text or href.split("/")[-1],
-                    source="detail_link",
-                ))
+            if is_attachment_candidate(candidate):
+                attachments.append(candidate)
 
         # 从 wp_pdf_player 元素提取 PDF 附件
         # jwc 站群有两种写法：
@@ -213,7 +204,7 @@ class WpNewsAdapter(SiteAdapter):
         from urllib.parse import parse_qs, urlparse
 
         # 写法 1：<span class="wp_pdf_player" pdfsrc="...">
-        for el in soup.find_all(class_="wp_pdf_player"):
+        for el in content.find_all(class_="wp_pdf_player"):
             pdfsrc = el.get("pdfsrc") or el.get("file") or ""
             if pdfsrc:
                 pdf_url = urljoin(base_url, pdfsrc)

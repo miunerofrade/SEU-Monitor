@@ -16,26 +16,12 @@ import requests
 
 from seu_monitor.core.http import new_session
 from seu_monitor.core.models import AttachmentCandidate, SavedAttachment
+from .attachment_rules import ATTACHMENT_EXTENSIONS, is_attachment_candidate
 
 logger = logging.getLogger(__name__)
 
 # 常见附件扩展名（小写）
-_ATTACHMENT_EXTENSIONS = {
-    ".pdf",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".ppt",
-    ".pptx",
-    ".zip",
-    ".rar",
-    ".7z",
-    ".txt",
-    ".jpg",
-    ".jpeg",
-    ".png",
-}
+_ATTACHMENT_EXTENSIONS = ATTACHMENT_EXTENSIONS
 
 # 可接受的 Content-Type 前缀
 _ACCEPTABLE_TYPES = {
@@ -51,28 +37,7 @@ _ACCEPTABLE_TYPES = {
     "text/plain",
 }
 
-# 附件链接文本关键词
-_ATTACHMENT_KEYWORDS = ["附件", "下载", "pdf", "doc", "xls", "ppt", "zip"]
-
-
-def _is_attachment_candidate(candidate: AttachmentCandidate) -> bool:
-    """判断是否是值得尝试下载的附件候选。"""
-    if candidate.source == "inline_image":
-        return True
-    url_lower = candidate.url.lower()
-
-    # 规则 1：URL 后缀匹配附件扩展名
-    for ext in _ATTACHMENT_EXTENSIONS:
-        if url_lower.endswith(ext):
-            return True
-
-    # 规则 2：链接文本包含附件关键词
-    text_lower = candidate.text.lower()
-    for kw in _ATTACHMENT_KEYWORDS:
-        if kw in text_lower:
-            return True
-
-    return False
+_is_attachment_candidate = is_attachment_candidate
 
 
 def _sanitize_filename(filename: str) -> str:

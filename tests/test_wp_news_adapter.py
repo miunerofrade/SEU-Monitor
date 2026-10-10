@@ -140,3 +140,26 @@ def test_body_images_preserve_order_exclude_navigation_and_deduplicate():
     assert detail.markdown.index("前文") < detail.markdown.index("![安排]") < detail.markdown.index("后文")
     assert "logo" not in detail.markdown
     assert "data:image" not in detail.markdown
+
+
+def test_navigation_download_links_are_not_attachments():
+    html = '''<body><div><a href="/33448/list.htm">下载专区</a>
+    <a href="/unrelated.pdf">网站使用说明</a></div>
+    <div class="wp_articlecontent"><p>通知正文</p>
+    <a href="/33448/list.htm">附件下载专区</a>
+    <a href="/a.pdf?version=2">报名表</a>
+    <a href="/download.php?id=1">下载附件</a>
+    <span class="wp_pdf_player" pdfsrc="/b.pdf"></span></div></body>'''
+    detail = WpNewsAdapter.parse_detail_html(html, 'https://example.com/notice.htm')
+    assert {a.url for a in detail.attachments} == {
+        'https://example.com/a.pdf?version=2',
+        'https://example.com/download.php?id=1',
+        'https://example.com/b.pdf',
+    }
+
+
+def test_fallback_body_still_rejects_download_navigation():
+    detail = WpNewsAdapter.parse_detail_html(
+        '<body><a href="/33448/list.htm">下载专区</a><a href="/a.pdf">附件</a></body>',
+        'https://example.com/notice.htm')
+    assert [a.url for a in detail.attachments] == ['https://example.com/a.pdf']
