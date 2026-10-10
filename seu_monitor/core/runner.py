@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 import logging
+import json
+import shutil
 from pathlib import Path
 from seu_monitor.adapters.wp_news import WpNewsAdapter
 from seu_monitor.sources.jwc import site_config
@@ -12,6 +14,7 @@ from .notify import FeishuNotifier
 from .settings import Settings
 from .snapshot import SnapshotStore
 from .state import StateStore
+from .content_dedup import ContentIndex
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,7 @@ def run_all(settings: Settings | None = None) -> int:
     settings.validate()
     state = StateStore(settings.store_root)
     snapshot = SnapshotStore(settings.snapshot_root)
+    content_index = ContentIndex.load(settings.snapshot_root, state)
     notifier = FeishuNotifier(settings.feishu_webhook)
     proxies = settings.resolve_proxies_dict()
     if settings.vpn_enabled and not run_check_vpn(settings):
@@ -58,6 +62,17 @@ def run_all(settings: Settings | None = None) -> int:
                     if any(a.error for a in attachments):
                         logger.warning("%s 有附件下载失败，保留重试", notice.title)
                         continue
+                    metadata = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+                    try:
+                        duplicate = content_index.find(metadata, detail.text)
+                    except ValueError:
+                        duplicate = None
+                    if duplicate is not None and duplicate != directory:
+                        state.mark_seen(column["name"], notice.id)
+                        seen.add(notice.id)
+                        shutil.rmtree(directory)
+                        logger.info("跳过重复内容：%s；保留归档 %s", notice.title, duplicate)
+                        continue
                     delivered = not settings.feishu_webhook or notifier.send(
                         column["name"],
                         notice.title,
@@ -68,6 +83,10 @@ def run_all(settings: Settings | None = None) -> int:
                     if delivered:
                         state.mark_seen(column["name"], notice.id)
                         seen.add(notice.id)
+                        try:
+                            content_index.add(metadata, directory, detail.text)
+                        except ValueError:
+                            pass  # 空通知仍允许推送，但不作为内容去重依据。
                         total += 1
                 except Exception:
                     logger.warning("%s 处理失败，下次重试", notice.title, exc_info=True)

@@ -128,6 +128,8 @@ class SnapshotStore:
             "fetched_at": now_iso,
             "html_sha256": html_sha256,
             "text_sha256": text_sha256,
+            "content_version": 1,
+            "content_text": detail.text,
             "snapshot_path": str(snap_dir),
             "attachments": attachments_info,
         }

@@ -173,3 +173,41 @@ def test_failed_column_and_notice_do_not_block_remaining_scan(tmp_path, monkeypa
     monkeypatch.setattr(runner.WpNewsAdapter, 'fetch_detail', details)
     assert runner.run_all(settings) == 1
     assert (tmp_path/'state/教务信息/sent_ids.txt').read_text().splitlines() == [notice.id]
+
+
+def test_changed_article_id_same_content_is_not_sent_or_retained(tmp_path, monkeypatch):
+    notice, detail, settings = setup_scan(tmp_path, monkeypatch, webhook='configured')
+    send = Mock(return_value=True)
+    monkeypatch.setattr(runner.FeishuNotifier, 'send', send)
+    assert runner.run_all(settings) == 1
+    notice.id = 'replacement123456'
+    notice.url = 'https://jwc.seu.edu.cn/replacement/page.htm'
+    detail.text = ' 正\n文 '
+    assert runner.run_all(settings) == 0
+    assert send.call_count == 1
+    assert len(list(Path(settings.snapshot_root).glob('**/meta.json'))) == 1
+    assert 'replacement123456' in runner.StateStore(settings.store_root).load('教务信息')
+    assert runner.run_all(settings) == 0
+
+
+@pytest.mark.parametrize('change', ['body', 'date', 'title'])
+def test_changed_content_is_still_sent(tmp_path, monkeypatch, change):
+    notice, detail, settings = setup_scan(tmp_path, monkeypatch)
+    assert runner.run_all(settings) == 1
+    notice.id = 'replacement123456'
+    notice.url += '?new'
+    if change == 'body': detail.text += '新增条款'
+    elif change == 'date': notice.date = '2026-10-09'
+    else: notice.title += '更正'
+    assert runner.run_all(settings) == 1
+
+
+def test_saved_failed_push_does_not_suppress_replacement(tmp_path, monkeypatch):
+    notice, _, settings = setup_scan(tmp_path, monkeypatch, webhook='configured')
+    send = Mock(side_effect=[False, True])
+    monkeypatch.setattr(runner.FeishuNotifier, 'send', send)
+    assert runner.run_all(settings) == 0
+    notice.id = 'replacement123456'
+    notice.url += '?new'
+    assert runner.run_all(settings) == 1
+    assert send.call_count == 2
