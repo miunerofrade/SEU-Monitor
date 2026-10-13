@@ -6,18 +6,22 @@
 
 ## 安装
 
-需要 Python 3.10+、Linux 和 systemd。macOS 可安装、运行测试和 `doctor`，但不支持此处的 systemd 后台启动。
+运行不需要 Python、uv 或 Go 环境。后台管理需要 Linux 和 systemd；macOS 可从源码构建，用于测试、`doctor` 和单次扫描。
+
+从 [GitHub Releases](https://github.com/miunerofrade/SEU-Monitor/releases) 下载对应平台的二进制和 `checksums.txt`。下面以 Linux amd64 为例（arm64 将文件名改为 `monitor_linux_arm64`）：
 
 ```bash
-git clone https://github.com/miunerofrade/SEU-Monitor.git
-cd SEU-Monitor
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+curl -fLO https://github.com/miunerofrade/SEU-Monitor/releases/latest/download/monitor_linux_amd64
+curl -fLO https://github.com/miunerofrade/SEU-Monitor/releases/latest/download/checksums.txt
+sha256sum --ignore-missing --check checksums.txt
+mkdir -p ~/.local/bin
+install -m 0755 monitor_linux_amd64 ~/.local/bin/monitor
+monitor --version
 ```
 
-激活虚拟环境后可以直接使用 `monitor`。也可执行 `.venv/bin/monitor`，或 `python monitor.py`。
+确保 `~/.local/bin` 在 PATH 中；否则使用 `~/.local/bin/monitor`。发布页同时提供第三方许可证，参见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
+需要保留源码目录时，也可将二进制放在 `~/seu-monitor-app/monitor`，再将 `~/.local/bin/monitor` 链接到它。systemd 使用程序的实际绝对路径。
 ## 基本命令
 
 ```bash
@@ -26,6 +30,8 @@ monitor stop      # 停止监控和 VPN，同时取消开机启动
 monitor ps        # 查看定时器、下次运行时间和 VPN 状态
 monitor doctor    # 检查配置、教务处连接；配置 VPN 后也检查校园通道
 monitor log       # 查看监控和 VPN 最近 50 条日志
+monitor --once    # 前台扫描一轮，不安装或启动 systemd
+monitor --dry-run # 检查未处理通知，不归档、不推送、不修改已处理记录
 ```
 
 `monitor` 自动生成 `~/.config/systemd/user/` 下的 `seu-monitor.service`、`seu-monitor.timer` 和 `seu-vpn.service`。通知扫描是一次性服务，由 timer 定时启动，扫描结束后退出；VPN 是常驻服务。重复启动复用同一套服务，从旧版本升级时自动停用原来的常驻监控服务。
@@ -74,7 +80,7 @@ Fork 后如需使用 GitHub Actions 监控，请在自己的仓库完成以下�
 3. 打开 **Actions**，启用 fork 仓库的 Actions，再进入 **SEU_Monitor → Enable workflow** 启用该工作流。
 4. 点击 **Run workflow** 手动执行一次，确认推送正常。
 
-启用后每天北京时间 **08:00** 扫描一次；修改 `.github/workflows/monitor.yml` 的 cron 可调整时间。定时任务的实际启动时间可能延后。GitHub Actions 使用独立的已处理记录，与服务器的数据不共享；同一机器人同时启用两种部署方式会重复推送。
+启用后每天北京时间 **08:00** 扫描一次；修改 `.github/workflows/monitor.yml` 的 cron 可调整时间。定时任务的实际启动时间可能延后。GitHub Actions 使用独立的已处理记录，与服务器的数据不共享；同一机器人同时启用两种部署方式会重复推送。此工作流只持久保存文章 ID，临时归档会随 runner 清理；需要长期附件复用和跨文章 ID 内容去重时，使用服务器部署。
 
 ## 校园 VPN
 
@@ -164,44 +170,42 @@ systemctl --user restart seu-vpn.service
 
 遇到 `Failed to connect to bus`，先确认这是有 systemd 用户会话的 Linux 主机，并执行 `loginctl enable-linger`。在 macOS、没有 systemd 的容器或 CI 中，不使用后台启动命令。
 
-## 代码结构
-
-```text
-seu_monitor/
-├── cli.py                       # 命令入口
-├── config.py                    # 精简配置读写
-├── systemd.py                   # 服务生成及生命周期管理
-├── migration.py                 # 旧数据导入
-├── sources/jwc.py               # 教务处栏目
-├── adapters/wp_news.py          # 网页解析
-└── core/
-    ├── runner.py                # 单次扫描管线
-    ├── snapshot.py              # 通知归档
-    ├── attachments.py           # 附件下载
-    ├── attachment_rules.py      # 统一 URL、文件类型及候选判断
-    ├── body_assets.py            # 正文附件 / PDF / 图片提取与引用
-    ├── content_dedup.py          # 跨文章 ID 的内容去重
-    ├── vpn.py                   # 原生核心与代理生命周期
-    ├── cas.py                   # 纯 HTTP CAS 密码/短信认证
-    ├── state.py                 # 去重状态
-    ├── notify.py                # 飞书推送
-    └── http.py / healthcheck.py / models.py / settings.py
-```
-
-`edulog.py` 保留为旧定时任务的一次扫描入口，共用抓取实现，不启动 systemd 服务。正常本地部署使用 `monitor`。
-
-附件处理使用同一条管线：站点适配器定位正文，`body_assets` 提取文件链接、PDF 播放器和图片，`attachment_rules` 统一判断地址和文件类型，`attachments` 负责去重、复用已校验文件、下载与响应检查。归档内容去重也共用文件类型规则。增加站点时可复用这条管线，无需在解析器和下载器里各写一套规则；网络失败及真实附件返回 HTML 仍会保留重试。
-
-## 开发
+## 更新与 Python 版迁移
 
 ```bash
-pip install -e '.[dev]'
-python -m pytest -q
+monitor update --check    # 只检查最新稳定版
+monitor update           # 校验并替换程序，保留 monitor.previous
 ```
 
-测试覆盖配置、服务命令、迁移、附件保存及复用、CAS 票据拦截和短信认证，通过模拟网络、VPN 核心和 systemd 运行。
+更新从本仓库 GitHub Releases 下载当前系统及架构的二进制，核对 SHA256 并检查新程序能启动。校验通过后才暂停定时器，等待扫描结束，替换程序并恢复原先运行的服务；原本停止的服务保持停止。服务恢复失败时回滚旧程序。更新不改变配置、通知、附件或已处理记录，也不更新 zju-connect 核心版本。
 
-zju-connect 为独立的可选 AGPL-3.0 程序，使用未修改的官方发布。自动安装会在核心旁保存 LICENSE 和 SOURCE.txt；对应[固定版本源码](https://github.com/Mythologyli/zju-connect/tree/5d7f5b11fcf231f72a0ec0d888bf0f2eadcce1da)。本项目自身代码许可证保持不变。
+Go 版直接兼容 Python 版的 `config.json`、`state/`、`web/` 及 VPN 设备、核心状态，无需重新下载或重新配置。切换前停掉定时器并等待扫描结束，保留旧 Python 程序、虚拟环境和 systemd 配置；Go 二进制可放在原来的程序目录。运行 `monitor` 会将 systemd 启动路径切到 Go 版。先确认 `monitor doctor` 和一轮扫描正常，再恢复使用；旧环境保留几个扫描周期后再清理。Python 稳定源码位于 tag `python-stable-20261013`，主分支只维护 Go。
+
+## 代码结构和开发
+
+```text
+cmd/monitor/main.go              # 命令入口与退出信号
+internal/monitor/
+├── cli.go / config.go           # 命令、配置及旧数据导入
+├── runner.go / http.go          # 扫描、网络与飞书推送
+├── html.go                      # 列表、正文和附件统一解析
+├── attachments.go / storage.go  # 文件下载、复用、归档和内容去重
+├── cas.go / vpn.go              # CAS 认证与 zju-connect 子进程
+├── systemd.go                   # timer、VPN 服务和日志
+└── update.go                    # 校验、更新与失败回滚
+```
+
+需要 Go 1.26+：
+
+```bash
+go test -race ./...
+go vet ./...
+go build -o monitor ./cmd/monitor
+```
+
+测试包括 Python 版样例的输出对照、非法嵌套链接、段落提取、附件复用和失败重试、内容去重、RSA 密码及短信认证、一次性票据拦截、子进程提示读取，以及更新校验和回滚。CI 在 Linux 和 macOS 上运行测试，发布工作流构建 Linux amd64 / arm64 二进制和 SHA256 校验文件。
+
+zju-connect 为独立的可选 AGPL-3.0 程序，使用未修改的官方发布。自动安装会在核心旁保存 LICENSE 和 SOURCE.txt；对应[固定版本源码](https://github.com/Mythologyli/zju-connect/tree/5d7f5b11fcf231f72a0ec0d888bf0f2eadcce1da)。
 
 ## 免责声明
 

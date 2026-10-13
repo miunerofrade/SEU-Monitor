@@ -30,3 +30,7 @@ logs/
 .vpn/
 
 .ruff_cache/
+
+# Go / migration diagnostics
+/monitor
+/.migration-check/

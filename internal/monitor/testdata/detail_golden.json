@@ -1,0 +1,83 @@
+[
+  {
+    "name": "inline",
+    "html": "<div class=\"wp_articlecontent\"><p><span>根据</span><span>学科竞赛</span>，<span>202</span><span>5</span>-<span>202</span><span>6</span>学年。</p><p>联系人：老师</p></div>",
+    "base": "https://example.com/news/notice.htm",
+    "text": "根据学科竞赛，2025-2026学年。\n\n联系人：老师",
+    "markdown": "根据学科竞赛，2025-2026学年。\n\n联系人：老师",
+    "attachments": []
+  },
+  {
+    "name": "navigation",
+    "html": "<body><div><a href=\"/33448/list.htm\">下载专区</a><a href=\"/unrelated.pdf\">网站说明</a></div><div class=\"wp_articlecontent\"><p>正文</p><a href=\"/list.htm\">下载专区</a><a href=\"/a.pdf?version=2\">报名表</a><a href=\"/download.php?id=1\">下载附件</a></div></body>",
+    "base": "https://example.com/news/notice.htm",
+    "text": "正文\n\n下载专区报名表下载附件",
+    "markdown": "正文\n\n下载专区报名表下载附件",
+    "attachments": [
+      {
+        "url": "https://example.com/a.pdf?version=2",
+        "text": "报名表",
+        "source": "detail_link"
+      },
+      {
+        "url": "https://example.com/download.php?id=1",
+        "text": "下载附件",
+        "source": "detail_link"
+      }
+    ]
+  },
+  {
+    "name": "pdf_image",
+    "html": "<div class=\"wp_articlecontent\"><p>前文<img src=\"/image?id=1\" alt=\"图\">后文</p><iframe class=\"wp_pdf_player\" src=\"/viewer/index.html?file=../files/a.pdf\"></iframe></div>",
+    "base": "https://example.com/news/notice.htm",
+    "text": "前文后文",
+    "markdown": "前文\n\n![图](<https://example.com/image?id=1>)\n\n后文",
+    "attachments": [
+      {
+        "url": "https://example.com/files/a.pdf",
+        "text": "附件.pdf",
+        "source": "pdf_player"
+      },
+      {
+        "url": "https://example.com/image?id=1",
+        "text": "图",
+        "source": "inline_image"
+      }
+    ]
+  },
+  {
+    "name": "table",
+    "html": "<div class=\"wp_articlecontent\"><p>Hello <b>world</b><br>下一行</p><table><tr><td>姓名</td><td>奖项</td></tr><tr><td>同学</td><td>一等奖</td></tr></table></div>",
+    "base": "https://example.com/news/notice.htm",
+    "text": "Hello world\n下一行\n\n姓名\t奖项\n同学\t一等奖",
+    "markdown": "Hello world\n下一行\n\n姓名\t奖项\n同学\t一等奖",
+    "attachments": []
+  },
+  {
+    "name": "cleanup",
+    "html": "<body><nav>导航</nav><article><script>bad()</script><p>正文<b>加粗</b></p></article><footer>页脚</footer></body>",
+    "base": "https://example.com/news/notice.htm",
+    "text": "正文加粗",
+    "markdown": "正文加粗",
+    "attachments": []
+  },
+  {
+    "name": "fixture",
+    "html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>关于2024-2025学年秋季学期选课的通知</title></head>\n<body>\n<div class=\"content\">\n  <h1>关于2024-2025学年秋季学期选课的通知</h1>\n  <div class=\"article-info\">\n    <span>发布时间：2024-03-01</span>\n    <span>发布人：教务处</span>\n  </div>\n  <div class=\"article-content\">\n    <p>各位同学：</p>\n    <p>根据学校教学工作安排，2024-2025学年秋季学期选课工作即将开始。</p>\n    <p>选课时间安排如下：</p>\n    <ul>\n      <li>第一阶段：2024年4月1日-4月15日</li>\n      <li>第二阶段：2024年5月1日-5月15日</li>\n    </ul>\n    <p>请各位同学按时完成选课。</p>\n    <p class=\"附件\">\n      附件：\n      <a href=\"/upload/file1.pdf\">选课指南.pdf</a>\n      <a href=\"/upload/file2.docx\">课程清单.docx</a>\n    </p>\n  </div>\n</div>\n</body>\n</html>\n",
+    "base": "https://example.com/news/notice.htm",
+    "text": "关于2024-2025学年秋季学期选课的通知\n\n发布时间：2024-03-01 发布人：教务处\n\n各位同学：\n\n根据学校教学工作安排，2024-2025学年秋季学期选课工作即将开始。\n\n选课时间安排如下：\n\n第一阶段：2024年4月1日-4月15日\n\n第二阶段：2024年5月1日-5月15日\n\n请各位同学按时完成选课。\n\n附件： 选课指南.pdf 课程清单.docx",
+    "markdown": "关于2024-2025学年秋季学期选课的通知\n\n发布时间：2024-03-01 发布人：教务处\n\n各位同学：\n\n根据学校教学工作安排，2024-2025学年秋季学期选课工作即将开始。\n\n选课时间安排如下：\n\n第一阶段：2024年4月1日-4月15日\n\n第二阶段：2024年5月1日-5月15日\n\n请各位同学按时完成选课。\n\n附件： 选课指南.pdf 课程清单.docx",
+    "attachments": [
+      {
+        "url": "https://example.com/upload/file1.pdf",
+        "text": "选课指南.pdf",
+        "source": "detail_link"
+      },
+      {
+        "url": "https://example.com/upload/file2.docx",
+        "text": "课程清单.docx",
+        "source": "detail_link"
+      }
+    ]
+  }
+]

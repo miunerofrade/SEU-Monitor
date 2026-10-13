@@ -6,14 +6,16 @@ permissions:
   contents: read
 jobs:
   tests:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ['3.10', '3.12', '3.13']
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: ${{ matrix.python }}
-      - run: pip install -e '.[dev]'
-      - run: python -m pytest -q
+          go-version-file: go.mod
+          cache: true
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build ./cmd/monitor

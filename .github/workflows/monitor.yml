@@ -1,52 +1,36 @@
 name: SEU_Monitor
-
 on:
   schedule:
-    # 每天北京时间 08:00 运行一次（UTC 00:00）
     - cron: '0 0 * * *'
-  workflow_dispatch: # 允许你在 GitHub 页面上点击 "Run workflow" 手动触发
-
-# 赋予 GitHub Actions 修改仓库文件的权限
+  workflow_dispatch:
 permissions:
   contents: write
-
+concurrency:
+  group: scheduled-monitor
+  cancel-in-progress: false
 jobs:
-  build:
+  monitor:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
-
-      - name: 安装 Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          python-version: '3.10'
-
-      - name: 安装依赖
-        run: |
-          pip install -e .
-
-      - name: 运行监控脚本
+          go-version-file: go.mod
+          cache: true
+      - run: go build -o monitor ./cmd/monitor
+      - name: Scan and preserve processed IDs
         env:
-          # 将 GitHub Secrets 注入到系统环境变量中供 Python 读取
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-          # 告诉 Python 脚本现在处于 GitHub 环境中，切换到相对路径
-          GITHUB_ACTIONS: "true"
-        run: python edulog.py
-
-      - name: 自动保存记录 (Git Push)
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          
-          # 检查 store 文件夹是否存在，如果不存在则创建
+          mkdir -p "$RUNNER_TEMP/seu-monitor/state"
+          if [ -d store ]; then cp -R store/. "$RUNNER_TEMP/seu-monitor/state/"; fi
+          ./monitor --data-dir "$RUNNER_TEMP/seu-monitor" --once
           mkdir -p store
-          
-          # 将 store 文件夹下的所有 sent_ids.txt 记录添加到暂存区
+          cp -R "$RUNNER_TEMP/seu-monitor/state/." store/
+          git config user.name 'GitHub Actions'
+          git config user.email 'actions@github.com'
           git add store/
-          
-          # 提交更改。|| exit 0 是为了防止在没有新公告时 commit 失败导致整个任务显示红色报错
-          git commit -m "自动更新推送记录 [skip ci]" || exit 0
-          
-          # 推送回仓库，让 GitHub “记住”已经发送过的 ID
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m '自动更新推送记录 [skip ci]'
+            git push
+          fi

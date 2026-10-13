@@ -1,0 +1,30 @@
+{
+  "html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>最新动态</title></head>\n<body>\n<div id=\"wp_news_w1\" class=\"wp_news_content\">\n  <table>\n    <tr>\n      <td class=\"main\">\n        <a href=\"../../c21676a517810/\" title=\"关于2024-2025学年秋季学期选课的通知\">\n          关于2024-2025学年秋季学期选课的通知\n        </a>\n      </td>\n      <td>2024-03-01</td>\n    </tr>\n    <tr>\n      <td class=\"main\">\n        <a href=\"../../c21676a529996/\" title=\"2024年上半年全国大学英语四六级考试报名通知\">\n          2024年上半年全国大学英语四六级考试报名通知\n        </a>\n      </td>\n      <td>2024-03-10</td>\n    </tr>\n    <tr>\n      <td class=\"main\">\n        <a href=\"../../c21676a534566/\" title=\"关于2024届本科毕业生毕业审核工作的通知\">\n          关于2024届本科毕业生毕业审核工作的通知\n        </a>\n      </td>\n      <td>2024-03-15</td>\n    </tr>\n  </table>\n</div>\n</body>\n</html>\n",
+  "base": "https://jwc.seu.edu.cn/jwxx/list.htm",
+  "notices": [
+    {
+      "site_id": "jwc",
+      "column_id": "",
+      "notice_id": "c21676a517810",
+      "title": "关于2024-2025学年秋季学期选课的通知",
+      "url": "https://jwc.seu.edu.cn/c21676a517810/",
+      "date": "2024-03-01"
+    },
+    {
+      "site_id": "jwc",
+      "column_id": "",
+      "notice_id": "c21676a529996",
+      "title": "2024年上半年全国大学英语四六级考试报名通知",
+      "url": "https://jwc.seu.edu.cn/c21676a529996/",
+      "date": "2024-03-10"
+    },
+    {
+      "site_id": "jwc",
+      "column_id": "",
+      "notice_id": "c21676a534566",
+      "title": "关于2024届本科毕业生毕业审核工作的通知",
+      "url": "https://jwc.seu.edu.cn/c21676a534566/",
+      "date": "2024-03-15"
+    }
+  ]
+}
