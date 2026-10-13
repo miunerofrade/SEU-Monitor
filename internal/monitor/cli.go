@@ -118,7 +118,7 @@ func Main(ctx context.Context, args []string, version string) (int, error) {
 		return 0, nil
 	}
 	if o.help {
-		fmt.Println("monitor [--data-dir DIR] [--webhook URL] [--interval SECONDS]\nmonitor vpn [--account ACCOUNT] [--password PASSWORD] [--port PORT] [--interactive]\nmonitor stop | ps | doctor\nmonitor log [monitor|vpn] [-f] [-n 50]\nmonitor update [--check]\nmonitor --once | --dry-run\nmonitor --version")
+		fmt.Print(helpText)
 		return 0, nil
 	}
 	if o.command == "log" {
