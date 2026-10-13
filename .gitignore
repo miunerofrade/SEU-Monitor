@@ -34,3 +34,7 @@ logs/
 # Go / migration diagnostics
 /monitor
 /.migration-check/
+/python-rollback/
+/monitor.previous
+/monitor.update.lock
+/licenses.tar.gz
