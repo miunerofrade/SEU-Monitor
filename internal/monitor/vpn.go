@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -253,18 +254,7 @@ func RunVPN(ctx context.Context, root string, config Config, interactive bool) e
 	}
 	done := make(chan error, 1)
 	go func() { e := cmd.Wait(); writer.Close(); done <- e }()
-	defer func() {
-		stdin.Close()
-		cmd.Process.Signal(os.Interrupt)
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			cmd.Process.Kill()
-			<-done
-		}
-		reader.Close()
-		writer.Close()
-	}()
+	defer stopCore(cmd, stdin, reader, writer, done)
 	lines := coreLines(ctx, reader)
 	timeout := time.NewTimer(6 * time.Minute)
 	defer timeout.Stop()
@@ -337,5 +327,19 @@ func RunVPN(ctx context.Context, root string, config Config, interactive bool) e
 				return errors.New("VPN 要求额外验证，请使用交互登录")
 			}
 		}
+	}
+}
+
+// 先关闭输出管道，再等待子进程，避免未消费日志阻塞 exec.Wait。
+func stopCore(cmd *exec.Cmd, stdin, reader, writer io.Closer, done <-chan error) {
+	stdin.Close()
+	reader.Close()
+	writer.Close()
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		cmd.Process.Kill()
+		<-done
 	}
 }

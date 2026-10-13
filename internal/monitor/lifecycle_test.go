@@ -3,10 +3,13 @@ package monitor
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCorePromptWithoutNewlineAndSecretFiltering(t *testing.T) {
@@ -118,5 +121,36 @@ func TestExplicitInvalidIntervalAndPort(t *testing.T) {
 		if c.Validate() == nil {
 			t.Fatal("explicit zero was ignored")
 		}
+	}
+}
+
+func TestCoreShutdownWithUnconsumedOutput(t *testing.T) {
+	if os.Getenv("SEU_FAKE_CORE_OUTPUT") == "1" {
+		for {
+			os.Stdout.Write(make([]byte, 65536))
+		}
+	}
+	binary, e := os.Executable()
+	if e != nil {
+		t.Fatal(e)
+	}
+	cmd := exec.Command(binary, "-test.run=TestCoreShutdownWithUnconsumedOutput")
+	cmd.Env = append(os.Environ(), "SEU_FAKE_CORE_OUTPUT=1")
+	stdin, _ := cmd.StdinPipe()
+	reader, writer := io.Pipe()
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+	if e = cmd.Start(); e != nil {
+		t.Fatal(e)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	time.Sleep(100 * time.Millisecond)
+	stopped := make(chan struct{})
+	go func() { stopCore(cmd, stdin, reader, writer, done); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("subprocess cleanup deadlocked")
 	}
 }

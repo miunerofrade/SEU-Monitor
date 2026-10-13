@@ -245,6 +245,15 @@ func Update(ctx context.Context, root, current string, check bool) error {
 	if e != nil {
 		return e
 	}
+	releaseLock, e := operationLock(exe + ".update.lock")
+	if e != nil {
+		return e
+	}
+	defer releaseLock()
+	if output, err := exec.CommandContext(ctx, exe, "--version").Output(); err == nil && !newer(strings.TrimSpace(string(output)), release.Tag) {
+		fmt.Println("该版本已安装，无需重复更新")
+		return nil
+	}
 	if e = installUpdate(ctx, exe, binary, release.Tag, func() (func() error, error) { return pauseForUpdate(ctx) }); e != nil {
 		return e
 	}
