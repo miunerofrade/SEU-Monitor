@@ -1,12 +1,12 @@
 # SEU-Monitor
 
-东南大学教务处通知监控命令行。定时抓取六个栏目，保存正文、附件和元数据，可通过飞书机器人推送新通知。不保存原网页 HTML。
+东南大学教务处通知监控命令行。定时抓取六个栏目，保存正文、附件和元数据，可通过飞书机器人推送新通知。
 
 监控范围为教务处的六个栏目。校园 VPN 使用原生 zju-connect；监控和 VPN 由 Linux **systemd 用户服务**管理。
 
 ## 安装
 
-运行不需要 Python、uv 或 Go 环境。后台管理需要 Linux 和 systemd；macOS 可从源码构建，用于测试、`doctor` 和单次扫描。
+下载二进制后即可运行。后台管理使用 Linux 和 systemd；macOS 可从源码构建，用于测试、`doctor` 和单次扫描。
 
 从 [GitHub Releases](https://github.com/miunerofrade/SEU-Monitor/releases) 下载对应平台的二进制和 `checksums.txt`。下面以 Linux amd64 为例（arm64 将文件名改为 `monitor_linux_arm64`）：
 
@@ -61,7 +61,7 @@ monitor --webhook '飞书机器人地址' # 保存推送地址并启动
 monitor --webhook ''              # 关闭推送，仅保存通知
 ```
 
-间隔单位为秒，至少 60 秒，从上一轮扫描结束时开始计算。修改后自动保存并重新启动 timer，随后扫描一次。开机时 timer 自动启用并扫描一次，无需额外配置 cron；同一个扫描服务不会并发运行。
+间隔单位为秒，至少 60 秒，从上一轮扫描结束时开始计算。修改后自动保存并重新启动 timer，随后扫描一次。开机时 timer 自动启用并扫描一次，同一个扫描服务串行运行。
 
 不配置飞书也会归档并去重。配置飞书后，只有正文和附件保存成功、推送成功才标记通知已处理；网络、附件或推送失败都会在下一轮重试。已经保存且 SHA256 校验通过的附件直接复用。
 
@@ -94,9 +94,9 @@ monitor doctor
 
 省略 `--password` 时交互输入密码，避免密码留在 shell 历史中。以后直接 `monitor` 会使用已保存的账号配置启动 VPN，再启动监控。
 
-默认 HTTP 代理为 `127.0.0.1:8888`，只监听本机，不改系统路由。需要更换端口可用 `monitor vpn --port 8889`。旧 aTrust 容器若仍占用端口，需要先停掉。
+默认 HTTP 代理为 `127.0.0.1:8888`，监听本机。需要更换端口可用 `monitor vpn --port 8889`。
 
-首次使用自动下载官方固定版本 zju-connect v1.3.1，校验 GitHub 发布的 SHA256。下载和校园认证直连，避免依赖尚未建立的 VPN 代理；账号密码不传给核心命令行，包含票据的核心原始输出不进入日志。使用纯 HTTP 完成 CAS 密码认证（RSA 加密）和短信验证，不依赖 Playwright 或 Chromium；拦截一次性 CAS 回调，交给核心建立校园通道。
+首次使用自动下载官方固定版本 zju-connect v1.3.1，校验 GitHub 发布的 SHA256。下载和校园认证直连，避免依赖尚未建立的 VPN 代理；账号密码不传给核心命令行，包含票据的核心原始输出不进入日志。使用纯 HTTP 完成 CAS 密码认证（RSA 加密）和短信验证；拦截一次性 CAS 回调，交给核心建立校园通道。
 
 如学校要求短信验证，执行：
 
@@ -104,11 +104,11 @@ monitor doctor
 monitor vpn --interactive
 ```
 
-它会停止后台 VPN，在当前终端用 HTTP 登录、发送短信并提示输入验证码，SSH 中也可以使用，不需要图形桌面。认证完成后代理随这个前台进程运行；退出后执行 `monitor vpn` 恢复后台服务。稳定设备标识保存在 VPN 数据目录中，避免每次随机生成新设备。
+它会停止后台 VPN，在当前终端用 HTTP 登录、发送短信并提示输入验证码，也可直接在 SSH 中操作。认证完成后代理随这个前台进程运行；退出后执行 `monitor vpn` 恢复后台服务。稳定设备标识保存在 VPN 数据目录中，避免每次随机生成新设备。
 
 学校要求短信验证时需要人工输入验证码。图形验证码暂不支持，遇到时会提示并停止自动重试。
 
-高级场景可用环境变量 `VPN_BINARY` 指定已安装的核心；需写入服务时使用 `systemctl --user edit seu-vpn.service` 添加 `[Service]` 下的 `Environment=VPN_BINARY=/绝对路径/zju-connect`，随后重启服务。默认情况下不需要此配置。
+高级场景可用环境变量 `VPN_BINARY` 指定已安装的核心；需写入服务时使用 `systemctl --user edit seu-vpn.service` 添加 `[Service]` 下的 `Environment=VPN_BINARY=/绝对路径/zju-connect`，随后重启服务。
 
 ## 配置和文件在哪里
 
@@ -126,13 +126,13 @@ seu-monitor/
 └── migration.json               # 旧数据导入记录
 ```
 
-目录结构参考 SEUdaily：一个通知一个目录，正文和附件一起保存；不会因重新扫描或通知标题变化不断创建新快照。附件名带 URL 哈希，避免同名附件覆盖；元数据记录内容 SHA256，用于复用前校验。下载失败的文件不当作成功附件。
+一个通知一个目录，正文和附件一起保存，重新扫描时复用现有归档。附件名带 URL 哈希，避免同名附件覆盖；元数据记录内容 SHA256，用于复用前校验。下载失败的文件不当作成功附件。
 
-六个栏目：最新动态、教务信息、学籍管理、实践教学、国际交流、文化素质教育。栏目定义集中在 `seu_monitor/sources/jwc.py`。
+六个栏目：最新动态、教务信息、学籍管理、实践教学、国际交流、文化素质教育。栏目定义集中在 `internal/monitor/models.go`。
 
 正文中的图片与 PDF、Word、Excel 等附件一起下载到通知目录的 `attachments/`，`text.md` 在图片原位置保留本地引用。相同链接只下载一次，重试时复用哈希校验通过的文件；图片下载失败会保留原链接并在下一轮重试。图片保留原文件，暂不做 OCR。
 
-从旧仓库升级时，首次在仓库目录执行 `monitor`，会将当前目录的 `snapshots/` 中教务处快照及 `store/` 已处理记录导入新目录。保留旧文件，不覆盖已存在的新通知目录；仅执行一次。旧 `sites.yaml` 和复杂 VPN 环境配置不再使用。不要把配置、认证状态或校园资源提交到公开仓库。
+从旧仓库升级时，首次在仓库目录执行 `monitor`，会将当前目录的 `snapshots/` 中教务处快照及 `store/` 已处理记录导入新目录。保留旧文件，不覆盖已存在的新通知目录；仅执行一次。不要把配置、认证状态或校园资源提交到公开仓库。
 
 自定义数据位置：
 
@@ -141,7 +141,7 @@ monitor --data-dir /绝对路径/monitor-data
 monitor --data-dir /绝对路径/monitor-data ps
 ```
 
-后续命令必须使用同一个目录；也可设置 `MONITOR_DATA_DIR`。同一用户只管理一套监控服务，不支持多个数据目录同时启动。
+后续命令必须使用同一个目录；也可设置 `MONITOR_DATA_DIR`。同一用户管理一套监控服务。
 
 ## 日志和服务排查
 
@@ -168,7 +168,7 @@ systemctl --user restart seu-vpn.service
 
 扫描完成后 `seu-monitor.service` 显示 `inactive (dead)` 是正常状态；`seu-monitor.timer` 应显示 `active (waiting)`，到下次时间会重新启动扫描。
 
-遇到 `Failed to connect to bus`，先确认这是有 systemd 用户会话的 Linux 主机，并执行 `loginctl enable-linger`。在 macOS、没有 systemd 的容器或 CI 中，不使用后台启动命令。
+遇到 `Failed to connect to bus`，先确认这是有 systemd 用户会话的 Linux 主机，并执行 `loginctl enable-linger`。macOS、容器或 CI 可使用 `monitor --once` 执行单次扫描。
 
 ## 更新与 Python 版迁移
 
@@ -177,9 +177,9 @@ monitor update --check    # 只检查最新稳定版
 monitor update           # 校验并替换程序，保留 monitor.previous
 ```
 
-更新从本仓库 GitHub Releases 下载当前系统及架构的二进制，核对 SHA256 并检查新程序能启动。校验通过后才暂停定时器，等待扫描结束，替换程序并恢复原先运行的服务；原本停止的服务保持停止。服务恢复失败时回滚旧程序。更新不改变配置、通知、附件或已处理记录，也不更新 zju-connect 核心版本。
+更新从本仓库 GitHub Releases 下载当前系统及架构的二进制，核对 SHA256 并检查新程序能启动。校验通过后才暂停定时器，等待扫描结束，替换程序并恢复原先运行的服务；原本停止的服务保持停止。服务恢复失败时回滚旧程序。更新保留配置、通知、附件、已处理记录和 zju-connect 核心版本。
 
-Go 版直接兼容 Python 版的 `config.json`、`state/`、`web/` 及 VPN 设备、核心状态，无需重新下载或重新配置。切换前停掉定时器并等待扫描结束，保留旧 Python 程序、虚拟环境和 systemd 配置；Go 二进制可放在原来的程序目录。运行 `monitor` 会将 systemd 启动路径切到 Go 版。先确认 `monitor doctor` 和一轮扫描正常，再恢复使用；旧环境保留几个扫描周期后再清理。Python 稳定源码位于 tag `python-stable-20261013`，主分支只维护 Go。
+Go 版直接兼容 Python 版的 `config.json`、`state/`、`web/` 及 VPN 设备、核心状态，直接复用现有数据。切换前停掉定时器并等待扫描结束，保留旧 Python 程序、虚拟环境和 systemd 配置；Go 二进制可放在原来的程序目录。运行 `monitor` 会将 systemd 启动路径切到 Go 版。先确认 `monitor doctor` 和一轮扫描正常，再恢复使用；旧环境保留几个扫描周期后再清理。Python 稳定源码位于 tag `python-stable-20261013`，主分支只维护 Go。
 
 ## 代码结构和开发
 
