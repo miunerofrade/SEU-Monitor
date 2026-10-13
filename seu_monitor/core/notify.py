@@ -12,6 +12,7 @@ import os
 from typing import Optional
 
 import requests
+from .html_text import text_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,7 @@ class FeishuNotifier:
             {"tag": "text", "text": f"发布时间: {date_text}"},
         ])
         if text_summary:
-            snippet = text_summary[:100].strip()
-            if len(text_summary) > 100:
-                snippet += "..."
+            snippet = text_snippet(text_summary)
             content_lines.append([
                 {"tag": "text", "text": snippet},
             ])

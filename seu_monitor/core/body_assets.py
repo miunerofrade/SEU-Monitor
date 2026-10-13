@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from bs4 import BeautifulSoup
 from .attachment_rules import is_attachment_candidate
 from .models import AttachmentCandidate
+from .html_text import extract_text
 
 
 def extract_body_assets(content, base_url: str):
@@ -37,7 +38,9 @@ def extract_body_assets(content, base_url: str):
         alt = candidate.text.replace("\n", " ")
         alt = alt.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
         attachments.append(candidate)
-        image.replace_with(f"\n![{alt}](<{candidate.url}>)\n")
+        paragraph = markdown_body.new_tag("div")
+        paragraph.string = f"![{alt}](<{candidate.url}>)"
+        image.replace_with(paragraph)
     # 图片覆盖同 URL 的普通链接，保证无扩展名的图片也能下载。
     unique = {candidate.url: candidate for candidate in attachments}
-    return list(unique.values()), markdown_body.get_text(separator="\n", strip=True)
+    return list(unique.values()), extract_text(markdown_body)

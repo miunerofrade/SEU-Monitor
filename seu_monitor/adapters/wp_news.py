@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import List, Optional
 from urllib.parse import urljoin
 
@@ -16,6 +15,7 @@ from seu_monitor.adapters.base import SiteAdapter
 from seu_monitor.core.http import do_get, new_session
 from seu_monitor.core.models import Detail, Notice
 from seu_monitor.core.body_assets import extract_body_assets
+from seu_monitor.core.html_text import extract_text
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +180,7 @@ class WpNewsAdapter(SiteAdapter):
         html_content = str(content)
 
         # ---- 提取纯文本 ----
-        text = content.get_text(separator="\n", strip=True)
-        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = extract_text(content)
 
         attachments, markdown = extract_body_assets(content, base_url)
         return Detail(html=html_content, text=text,
