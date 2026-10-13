@@ -1,9 +1,11 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,9 +70,17 @@ func TestRetryReuseDedupAndChangedAttachment(t *testing.T) {
 	if n, e := Scan(context.Background(), root, c, false); e != nil || n != 0 || downloads != before {
 		t.Fatal("seen ID was fetched", n, e, downloads)
 	}
+	var duplicateLog bytes.Buffer
+	previousLog := log.Writer()
+	log.SetOutput(&duplicateLog)
+	defer log.SetOutput(previousLog)
 	id = "replacement123456"
 	if n, e := Scan(context.Background(), root, c, false); e != nil || n != 0 {
 		t.Fatal(n, e)
+	}
+	log.SetOutput(previousLog)
+	if !strings.Contains(duplicateLog.String(), "跳过重复内容") || strings.Contains(duplicateLog.String(), "处理失败") {
+		t.Fatal("duplicate reported as failure:", duplicateLog.String())
 	}
 	if pushes != 2 {
 		t.Fatal("republished content pushed")
@@ -195,5 +205,36 @@ func TestFailedColumnDoesNotBlockOtherColumns(t *testing.T) {
 	}
 	if !seenIDs(root, "教务信息")["notice123456"] {
 		t.Fatal("remaining column not processed")
+	}
+}
+
+func TestAllFailedColumnsReturnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer server.Close()
+	old := Columns
+	Columns = []Column{{"zxdt", "最新动态", server.URL + "/news"}, {"jwxx", "教务信息", server.URL + "/academic"}}
+	defer func() { Columns = old }()
+	for _, dry := range []bool{false, true} {
+		n, err := Scan(context.Background(), t.TempDir(), DefaultConfig(), dry)
+		if n != 0 || err == nil || !strings.Contains(err.Error(), "所有栏目抓取失败") || !strings.Contains(err.Error(), "最新动态") || !strings.Contains(err.Error(), "教务信息") {
+			t.Fatalf("count=%d error=%v", n, err)
+		}
+	}
+}
+
+func TestEmptyColumnIsSuccessful(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/broken" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		fmt.Fprint(w, `<div id="wp_news_w1"><table></table></div>`)
+	}))
+	defer server.Close()
+	old := Columns
+	Columns = []Column{{"zxdt", "最新动态", server.URL + "/broken"}, {"jwxx", "教务信息", server.URL + "/empty"}}
+	defer func() { Columns = old }()
+	if n, err := Scan(context.Background(), t.TempDir(), DefaultConfig(), false); n != 0 || err != nil {
+		t.Fatal(n, err)
 	}
 }

@@ -62,6 +62,8 @@ func Scan(ctx context.Context, root string, config Config, dry bool) (int, error
 	defer client.CloseIdleConnections()
 	index := loadIndex(root)
 	total := 0
+	successfulColumns := 0
+	var columnErrors []error
 	for _, column := range Columns {
 		if ctx.Err() != nil {
 			return total, ctx.Err()
@@ -70,24 +72,36 @@ func Scan(ctx context.Context, root string, config Config, dry bool) (int, error
 		html, e := page(ctx, client, column.URL)
 		if e != nil {
 			log.Printf("%s 列表抓取失败，下次重试：%v", column.Name, e)
+			columnErrors = append(columnErrors, fmt.Errorf("%s：%w", column.Name, e))
 			continue
 		}
 		notices, e := ParseList(html, column.URL)
 		if e != nil {
+			log.Printf("%s 列表解析失败，下次重试：%v", column.Name, e)
+			columnErrors = append(columnErrors, fmt.Errorf("%s：%w", column.Name, e))
 			continue
 		}
+		successfulColumns++
 		for i := len(notices) - 1; i >= 0; i-- {
 			n := notices[i]
 			n.ColumnID = column.ID
 			if seen[n.ID] {
 				continue
 			}
-			if e = processNotice(ctx, root, config, client, index, seen, n, dry); e != nil {
+			if e = processNotice(ctx, root, config, client, index, seen, n, dry); errors.Is(e, errDuplicate) {
+				continue
+			} else if e != nil {
 				log.Printf("%s 处理失败，下次重试：%v", n.Title, e)
 			} else if !dry {
 				total++
 			}
 		}
+	}
+	if ctx.Err() != nil {
+		return total, ctx.Err()
+	}
+	if successfulColumns == 0 && len(columnErrors) > 0 {
+		return total, fmt.Errorf("所有栏目抓取失败：%w", errors.Join(columnErrors...))
 	}
 	log.Printf("扫描完成，成功处理 %d 条通知", total)
 	return total, nil
