@@ -78,3 +78,18 @@ func TestInvalidNestedSchoolLinks(t *testing.T) {
 		t.Fatal(list, e)
 	}
 }
+
+func TestEditorPlaceholderCandidate(t *testing.T) {
+	for _, source := range []string{"inline_image", "detail_link"} {
+		for _, u := range []string{"https://example.com/2026/article/ueditor/themes/default/images/spacer.gif?x=1", "https://example.com/ueditor/lang/zh-cn/images/localimage.png"} {
+			if IsCandidate(Candidate{u, "图片", source}) {
+				t.Fatalf("editor placeholder accepted: %s", u)
+			}
+		}
+		for _, u := range []string{"https://example.com/_upload/spacer.gif", "https://example.com/_upload/localimage.png", "https://example.com/_upload/photo.gif"} {
+			if !IsCandidate(Candidate{u, "图片", source}) {
+				t.Fatalf("real image rejected: %s", u)
+			}
+		}
+	}
+}

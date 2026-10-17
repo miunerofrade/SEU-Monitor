@@ -323,6 +323,12 @@ func IsCandidate(c Candidate) bool {
 	if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
+	// UEditor 从 Word 粘贴图片时留下的占位资源，不是通知附件。
+	resourcePath := strings.ToLower(u.Path)
+	if strings.HasSuffix(resourcePath, "/ueditor/themes/default/images/spacer.gif") ||
+		(strings.Contains(resourcePath, "/ueditor/lang/") && strings.HasSuffix(resourcePath, "/images/localimage.png")) {
+		return false
+	}
 	if c.Source == "inline_image" || c.Source == "pdf_player" {
 		return true
 	}

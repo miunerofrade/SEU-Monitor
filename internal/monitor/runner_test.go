@@ -238,3 +238,51 @@ func TestEmptyColumnIsSuccessful(t *testing.T) {
 		t.Fatal(n, err)
 	}
 }
+
+func TestEditorPlaceholderDoesNotBlockNotice(t *testing.T) {
+	placeholderRequests, pushes := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/list.htm":
+			fmt.Fprint(w, `<div id="wp_news_w1"><table><tr><td class="main"><a href="/2026/notice123456/page.htm">通知</a></td><td>2026-10-18</td></tr></table></div>`)
+		case "/2026/notice123456/page.htm":
+			fmt.Fprint(w, `<div class="wp_articlecontent"><p>正文</p><a href="/guide.pdf">项目简章</a><img src="/photo.png"><img src="./ueditor/themes/default/images/spacer.gif" word_img="file:///C:/photo.png"><img src="/ueditor/lang/zh-cn/images/localimage.png"></div>`)
+		case "/guide.pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			fmt.Fprint(w, "PDF")
+		case "/photo.png":
+			w.Header().Set("Content-Type", "image/png")
+			fmt.Fprint(w, "PNG")
+		case "/hook":
+			pushes++
+			fmt.Fprint(w, `{"code":0}`)
+		default:
+			placeholderRequests++
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	old := Columns
+	Columns = []Column{{"gjjl", "国际交流", server.URL + "/list.htm"}}
+	defer func() { Columns = old }()
+	root := t.TempDir()
+	c := DefaultConfig()
+	c.Webhook = server.URL + "/hook"
+	if n, err := Scan(context.Background(), root, c, false); n != 1 || err != nil {
+		t.Fatal(n, err)
+	}
+	if pushes != 1 || placeholderRequests != 0 || !seenIDs(root, "国际交流")["notice123456"] {
+		t.Fatal(pushes, placeholderRequests)
+	}
+	metas, _ := filepath.Glob(filepath.Join(root, "web", "教务处", "国际交流", "*", "meta.json"))
+	if len(metas) != 1 {
+		t.Fatal(metas)
+	}
+	m, err := readMeta(filepath.Dir(metas[0]))
+	if err != nil || len(m.Attachments) != 2 {
+		t.Fatal(m, err)
+	}
+	if n, err := Scan(context.Background(), root, c, false); n != 0 || err != nil || pushes != 1 {
+		t.Fatal(n, err, pushes)
+	}
+}
