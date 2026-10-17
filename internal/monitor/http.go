@@ -78,6 +78,10 @@ func page(ctx context.Context, c *http.Client, u string) (string, error) {
 }
 func Probe(ctx context.Context, proxy string) bool {
 	c := NewClient(proxy)
+	// 探测站点能否响应；页面跳转不代表隧道故障。
+	c.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	c.Timeout = 10 * time.Second
 	defer c.CloseIdleConnections()
 	u := "https://cvs.seu.edu.cn"
