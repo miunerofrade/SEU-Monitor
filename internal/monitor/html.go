@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"golang.org/x/net/html"
 	"net/url"
 	"path"
@@ -127,13 +129,52 @@ func ParseList(source, base string) ([]Notice, error) {
 	if e != nil {
 		return nil, e
 	}
+	// 新版教务处列表使用独立的标题、日期节点，限定在列表区域内。
+	if container := first(root, func(n *html.Node) bool { return hasClass(n, "news-list-wrap") }); container != nil {
+		out := []Notice{}
+		for _, item := range nodes(container, func(n *html.Node) bool { return hasClass(n, "news-list-item") }) {
+			titleNode := first(item, func(n *html.Node) bool { return hasClass(n, "news-item-title") })
+			dateNode := first(item, func(n *html.Node) bool { return hasClass(n, "news-item-date-ym") })
+			if titleNode == nil || dateNode == nil {
+				return nil, errors.New("通知列表结构异常：缺少标题或日期")
+			}
+			link := first(titleNode, func(n *html.Node) bool { return tag(n, "a") && attr(n, "href") != "" })
+			if link == nil {
+				return nil, errors.New("通知列表结构异常：缺少通知链接")
+			}
+			title := strings.TrimSpace(attr(link, "title"))
+			if title == "" {
+				title = inlineText(link)
+			}
+			u, err := url.Parse(absolute(base, attr(link, "href")))
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || title == "" {
+				return nil, errors.New("通知列表结构异常：通知链接或标题无效")
+			}
+			id := path.Base(path.Dir(u.Path))
+			date := inlineText(dateNode)
+			if date == "" {
+				return nil, errors.New("通知列表结构异常：日期无效")
+			}
+			// 保留旧版规则：没有文章编号的公众号等转载链接不进入归档。
+			if len(id) <= 5 {
+				continue
+			}
+			out = append(out, Notice{SiteID: "jwc", ID: id, Title: title, URL: u.String(), Date: date})
+		}
+		if len(out) == 0 && len(nodes(container, func(n *html.Node) bool { return hasClass(n, "news-list-item") })) == 0 && first(container, func(n *html.Node) bool { return tag(n, "a") && attr(n, "href") != "" }) != nil {
+			return nil, errors.New("通知列表结构异常：有链接但未识别出列表项")
+		}
+		return out, nil
+	}
 	container := first(root, func(n *html.Node) bool { return strings.HasPrefix(attr(n, "id"), "wp_news_w") })
 	if container == nil {
-		container = first(root, func(n *html.Node) bool { return strings.Contains(strings.ToLower(attr(n, "class")), "news") })
+		container = first(root, func(n *html.Node) bool {
+			return tag(n, "table") && first(n, func(c *html.Node) bool { return tag(c, "td") && hasClass(c, "main") }) != nil
+		})
 	}
 	out := []Notice{}
 	if container == nil {
-		return out, nil
+		return nil, fmt.Errorf("无法识别通知列表结构：%s", base)
 	}
 	for _, row := range nodes(container, func(n *html.Node) bool { return tag(n, "tr") }) {
 		main := first(row, func(n *html.Node) bool { return tag(n, "td") && hasClass(n, "main") })
@@ -169,6 +210,9 @@ func ParseList(source, base string) ([]Notice, error) {
 			date = inlineText(cells[len(cells)-1])
 		}
 		out = append(out, Notice{SiteID: "jwc", ID: id, Title: title, URL: absolute(base, relative), Date: date})
+	}
+	if len(out) == 0 && first(container, func(n *html.Node) bool { return tag(n, "a") && attr(n, "href") != "" }) != nil {
+		return nil, errors.New("通知列表结构异常：有链接但未解析出通知")
 	}
 	return out, nil
 }

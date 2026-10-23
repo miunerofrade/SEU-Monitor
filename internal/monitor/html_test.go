@@ -93,3 +93,37 @@ func TestEditorPlaceholderCandidate(t *testing.T) {
 		}
 	}
 }
+
+func TestRedesignedNoticeList(t *testing.T) {
+	source := `<nav class="news-nav"><a href="/unrelated">导航</a></nav><div class="news-list-wrap"><div frag="窗口25">
+ <div class="news-list-item"><div class="news-item-title"><a href="/_t3454/2026/1014/c21678a586035/page.htm" title="完整标题">缩略标题</a></div><div class="news-item-date-ym">2026-10-15</div></div>
+ <div class="news-list-item"><div class="news-item-title"><a href="https://futuretech.seu.edu.cn/2026/1013/c64035a585923/page.htm">转发通知</a></div><div class="news-item-date-ym">2026-10-14</div></div>
+ <div class="news-list-item"><div class="news-item-title"><a href="https://mp.weixin.qq.com/s/example123456">公众号转载</a></div><div class="news-item-date-ym">2026-10-14</div></div>
+ </div></div>`
+	expected := []Notice{
+		{SiteID: "jwc", ID: "c21678a586035", Title: "完整标题", URL: "https://jwc.seu.edu.cn/_t3454/2026/1014/c21678a586035/page.htm", Date: "2026-10-15"},
+		{SiteID: "jwc", ID: "c64035a585923", Title: "转发通知", URL: "https://futuretech.seu.edu.cn/2026/1013/c64035a585923/page.htm", Date: "2026-10-14"},
+	}
+	got, err := ParseList(source, "https://jwc.seu.edu.cn/jwxx/list.htm")
+	if err != nil || !reflect.DeepEqual(got, expected) {
+		t.Fatal(got, err)
+	}
+}
+
+func TestNoticeListStructureErrors(t *testing.T) {
+	for _, source := range []string{
+		`<html><body>网站维护</body></html>`,
+		`<div class="news-navigation"><a href="/">首页</a></div>`,
+		`<div class="news-list-wrap"><div class="news-list-item"><div class="news-item-title"><a href="/2026/c12345a123456/page.htm">通知</a></div></div></div>`,
+		`<div class="news-list-wrap"><div class="news-list-item"><div class="news-item-title"><a href="javascript:void(0)">通知</a></div><div class="news-item-date-ym">2026-10-23</div></div></div>`,
+	} {
+		if got, err := ParseList(source, "https://example.com/list.htm"); err == nil {
+			t.Fatalf("unrecognized page treated as empty: %v", got)
+		}
+	}
+	for _, source := range []string{`<div class="news-list-wrap"></div>`, `<div id="wp_news_w1"><table></table></div>`} {
+		if got, err := ParseList(source, "https://example.com/list.htm"); err != nil || len(got) != 0 {
+			t.Fatal(got, err)
+		}
+	}
+}

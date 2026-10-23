@@ -286,3 +286,14 @@ func TestEditorPlaceholderDoesNotBlockNotice(t *testing.T) {
 		t.Fatal(n, err, pushes)
 	}
 }
+
+func TestUnknownListLayoutFailsScan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `<html><body>已改版</body></html>`) }))
+	defer server.Close()
+	old := Columns
+	Columns = []Column{{"jwxx", "教务信息", server.URL}}
+	defer func() { Columns = old }()
+	if n, err := Scan(context.Background(), t.TempDir(), DefaultConfig(), false); n != 0 || err == nil || !strings.Contains(err.Error(), "无法识别通知列表结构") {
+		t.Fatal(n, err)
+	}
+}
