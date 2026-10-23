@@ -127,3 +127,14 @@ func TestNoticeListStructureErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestNoticeLinksTrimSurroundingWhitespace(t *testing.T) {
+	source := `<div class="news-list-wrap"><div class="news-list-item"><div class="news-item-title"><a href=" https://power.seu.edu.cn/2026/1008/c9503a585147/page.htm ">转载通知</a></div><div class="news-item-date-ym">2026-10-23</div></div></div>`
+	got, err := ParseList(source, "https://jwc.seu.edu.cn/gjjl/list.htm")
+	if err != nil || len(got) != 1 || got[0].URL != "https://power.seu.edu.cn/2026/1008/c9503a585147/page.htm" {
+		t.Fatal(got, err)
+	}
+	if got := absolute("https://example.com/list.htm", " /files/my%20file.pdf "); got != "https://example.com/files/my%20file.pdf" {
+		t.Fatal(got)
+	}
+}

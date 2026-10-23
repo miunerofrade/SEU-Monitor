@@ -118,7 +118,7 @@ func absolute(base, ref string) string {
 	if e != nil {
 		return ""
 	}
-	r, e := url.Parse(ref)
+	r, e := url.Parse(strings.TrimSpace(ref))
 	if e != nil {
 		return ""
 	}
